@@ -1,5 +1,5 @@
 {
-  "files": ["src/main/**/*.ts", "src/preload/**/*.ts"],
+  "include": ["src/main/**/*.ts", "src/preload/**/*.ts"],
   "compilerOptions": {
     "composite": true,
     "outDir": "./out",

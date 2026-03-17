@@ -7,7 +7,7 @@ export interface ClipItem {
   source_app: string | null
   source_app_name: string | null
   title: string | null
-  thumbnail: Buffer | null
+  thumbnail: Uint8Array | null
   link_meta: string | null
   is_pinned: number
   is_confidential: number
@@ -36,6 +36,14 @@ export interface IpcApi {
   deleteClipItem: (id: string) => Promise<void>
   clearHistory: () => Promise<void>
 
+  // Clipboard
+  getClipboardState: () => Promise<{ paused: boolean }>
+  setClipboardPaused: (paused: boolean) => Promise<void>
+  pasteClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
+  copyClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
+  onClipItemsChanged: (callback: () => void) => () => void
+  onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
+
   // Pinboard
   getPinboards: () => Promise<Pinboard[]>
   createPinboard: (name: string, color: string) => Promise<Pinboard>
@@ -44,6 +52,7 @@ export interface IpcApi {
   // Window
   hideWindow: () => void
   showSettings: () => void
+  quitApp: () => void
 
   // System
   getAccessibilityPermission: () => Promise<boolean>

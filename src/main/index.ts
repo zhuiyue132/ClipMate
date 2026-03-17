@@ -2,8 +2,16 @@ import { app, BrowserWindow, globalShortcut, Menu, Tray, nativeImage } from 'ele
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { initDatabase, closeDatabase } from './database'
-import { createMainWindow, createSettingsWindow, toggleMainWindow } from './windows'
+import { createMainWindow, createSettingsWindow, getMainWindow, toggleMainWindow } from './windows'
 import { setupIpcHandlers } from './ipc'
+import {
+  isClipboardPaused,
+  recordLastActiveApp,
+  setClipboardPaused,
+  startClipboardWatcher,
+  stopClipboardWatcher
+} from './clipboard'
+import { getFrontmostAppInfo } from './system/frontmostApp'
 
 let tray: Tray | null = null
 
@@ -39,9 +47,9 @@ function createTray(): void {
     {
       label: '暂停收集',
       type: 'checkbox',
-      checked: false,
-      click: (): void => {
-        // TODO: Phase 1 实现暂停/恢复剪贴板监听
+      checked: isClipboardPaused(),
+      click: (menuItem): void => {
+        setClipboardPaused(Boolean(menuItem.checked))
       }
     },
     { type: 'separator' },
@@ -62,6 +70,11 @@ function createTray(): void {
 
   tray.setContextMenu(contextMenu)
   tray.on('click', () => {
+    if (!getMainWindow()?.isVisible()) {
+      // 记录呼出面板前的活跃应用，供 Direct Paste 使用
+      const appInfo = getFrontmostAppInfo()
+      recordLastActiveApp(appInfo)
+    }
     toggleMainWindow()
   })
 }
@@ -99,8 +112,15 @@ app.whenReady().then(() => {
 
   // 注册全局快捷键 Cmd+Shift+V 呼出/隐藏
   globalShortcut.register('CommandOrControl+Shift+V', () => {
+    if (!getMainWindow()?.isVisible()) {
+      const appInfo = getFrontmostAppInfo()
+      recordLastActiveApp(appInfo)
+    }
     toggleMainWindow()
   })
+
+  // 启动剪贴板监听
+  startClipboardWatcher()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -111,6 +131,7 @@ app.whenReady().then(() => {
 
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
+  stopClipboardWatcher()
   closeDatabase()
 })
 

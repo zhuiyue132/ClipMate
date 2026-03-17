@@ -1,8 +1,9 @@
-import { ipcMain, systemPreferences } from 'electron'
+import { app, ipcMain, systemPreferences } from 'electron'
 import { getDatabase } from '../database'
 import { toggleMainWindow, createSettingsWindow, getMainWindow } from '../windows'
 import { v4 as uuidv4 } from 'uuid'
 import type { Pinboard } from '../../shared/types'
+import { copyClipItem, isClipboardPaused, pasteClipItem, setClipboardPaused } from '../clipboard'
 
 export function setupIpcHandlers(): void {
   // ===== 数据库操作 =====
@@ -28,6 +29,24 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('db:clearHistory', () => {
     const db = getDatabase()
     db.exec('DELETE FROM clip_items WHERE is_pinned = 0')
+  })
+
+  // ===== 剪贴板动作 =====
+
+  ipcMain.handle('clip:getState', () => {
+    return { paused: isClipboardPaused() }
+  })
+
+  ipcMain.handle('clip:setPaused', (_event, paused: boolean) => {
+    setClipboardPaused(paused)
+  })
+
+  ipcMain.handle('clip:pasteItem', (_event, id: string, options?: { plainText?: boolean }) => {
+    pasteClipItem(id, options)
+  })
+
+  ipcMain.handle('clip:copyItem', (_event, id: string, options?: { plainText?: boolean }) => {
+    copyClipItem(id, options)
   })
 
   // ===== Pinboard 操作 =====
@@ -76,6 +95,10 @@ export function setupIpcHandlers(): void {
 
   ipcMain.on('window:showSettings', () => {
     createSettingsWindow()
+  })
+
+  ipcMain.on('app:quit', () => {
+    app.quit()
   })
 
   // ===== 系统权限 =====

@@ -10,6 +10,25 @@ const api = {
   deleteClipItem: (id: string): Promise<void> => ipcRenderer.invoke('db:deleteClipItem', id),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('db:clearHistory'),
 
+  // 剪贴板
+  getClipboardState: (): Promise<{ paused: boolean }> => ipcRenderer.invoke('clip:getState'),
+  setClipboardPaused: (paused: boolean): Promise<void> =>
+    ipcRenderer.invoke('clip:setPaused', paused),
+  pasteClipItem: (id: string, options?: { plainText?: boolean }): Promise<void> =>
+    ipcRenderer.invoke('clip:pasteItem', id, options),
+  copyClipItem: (id: string, options?: { plainText?: boolean }): Promise<void> =>
+    ipcRenderer.invoke('clip:copyItem', id, options),
+  onClipItemsChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('clip:itemsChanged', listener)
+    return () => ipcRenderer.removeListener('clip:itemsChanged', listener)
+  },
+  onClipStateChanged: (callback: (state: { paused: boolean }) => void): (() => void) => {
+    const listener = (_event, state: { paused: boolean }): void => callback(state)
+    ipcRenderer.on('clip:stateChanged', listener)
+    return () => ipcRenderer.removeListener('clip:stateChanged', listener)
+  },
+
   // Pinboard 操作
   getPinboards: (): Promise<Pinboard[]> => ipcRenderer.invoke('db:getPinboards'),
   createPinboard: (name: string, color: string): Promise<Pinboard> =>
@@ -19,6 +38,7 @@ const api = {
   // 窗口操作
   hideWindow: (): void => ipcRenderer.send('window:hide'),
   showSettings: (): void => ipcRenderer.send('window:showSettings'),
+  quitApp: (): void => ipcRenderer.send('app:quit'),
 
   // 系统权限
   getAccessibilityPermission: (): Promise<boolean> =>
