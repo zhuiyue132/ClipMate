@@ -3,7 +3,18 @@ import { getDatabase } from '../database'
 import { toggleMainWindow, createSettingsWindow, getMainWindow } from '../windows'
 import { v4 as uuidv4 } from 'uuid'
 import type { Pinboard, SearchFilters } from '../../shared/types'
-import { copyClipItem, isClipboardPaused, pasteClipItem, setClipboardPaused } from '../clipboard'
+import {
+  clearPasteStack,
+  copyClipItem,
+  getPasteStackState,
+  isClipboardPaused,
+  pasteClipItem,
+  pastePasteStack,
+  removePasteStackEntry,
+  reorderPasteStack,
+  setClipboardPaused,
+  setPasteStackEnabled
+} from '../clipboard'
 
 export function setupIpcHandlers(): void {
   const updatePinnedFlag = (itemId: string): void => {
@@ -184,6 +195,30 @@ export function setupIpcHandlers(): void {
 
   ipcMain.handle('clip:copyItem', (_event, id: string, options?: { plainText?: boolean }) => {
     copyClipItem(id, options)
+  })
+
+  ipcMain.handle('clip:getStackState', () => {
+    return getPasteStackState()
+  })
+
+  ipcMain.handle('clip:setStackEnabled', (_event, enabled: boolean) => {
+    setPasteStackEnabled(enabled)
+  })
+
+  ipcMain.handle('clip:clearStack', () => {
+    clearPasteStack()
+  })
+
+  ipcMain.handle('clip:removeStackEntry', (_event, entryId: string) => {
+    removePasteStackEntry(entryId)
+  })
+
+  ipcMain.handle('clip:reorderStack', (_event, entryIds: string[]) => {
+    reorderPasteStack(entryIds)
+  })
+
+  ipcMain.handle('clip:pasteStack', async () => {
+    await pastePasteStack()
   })
 
   // ===== Pinboard 操作 =====

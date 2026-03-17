@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ClipItem, Pinboard, SearchFilters, SourceAppSummary } from '../shared/types'
+import type {
+  ClipItem,
+  PasteStackState,
+  Pinboard,
+  SearchFilters,
+  SourceAppSummary
+} from '../shared/types'
 
 const api = {
   // 数据库操作
@@ -41,6 +47,20 @@ const api = {
     const listener = (_event, state: { paused: boolean }): void => callback(state)
     ipcRenderer.on('clip:stateChanged', listener)
     return () => ipcRenderer.removeListener('clip:stateChanged', listener)
+  },
+  getPasteStackState: (): Promise<PasteStackState> => ipcRenderer.invoke('clip:getStackState'),
+  setPasteStackEnabled: (enabled: boolean): Promise<void> =>
+    ipcRenderer.invoke('clip:setStackEnabled', enabled),
+  clearPasteStack: (): Promise<void> => ipcRenderer.invoke('clip:clearStack'),
+  removePasteStackEntry: (entryId: string): Promise<void> =>
+    ipcRenderer.invoke('clip:removeStackEntry', entryId),
+  reorderPasteStack: (entryIds: string[]): Promise<void> =>
+    ipcRenderer.invoke('clip:reorderStack', entryIds),
+  pastePasteStack: (): Promise<void> => ipcRenderer.invoke('clip:pasteStack'),
+  onPasteStackChanged: (callback: () => void): (() => void) => {
+    const listener = (): void => callback()
+    ipcRenderer.on('clip:stackChanged', listener)
+    return () => ipcRenderer.removeListener('clip:stackChanged', listener)
   },
 
   // Pinboard 操作

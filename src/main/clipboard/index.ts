@@ -1,17 +1,29 @@
 import { clipboard, nativeImage } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { getDatabase } from '../database'
 import { getMainWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
-import type { ClipItem } from '../../shared/types'
+import type { ClipItem, PasteStackState } from '../../shared/types'
 import { ClipboardWatcher } from './watcher'
 
 let watcher: ClipboardWatcher | null = null
 let lastActiveApp: FrontmostAppInfo | null = null
+let stackEnabled = false
+let stackQueue: Array<{ entryId: string; itemId: string; createdAt: number }> = []
+let stackPasting = false
+
+function notifyStackChanged(): void {
+  getMainWindow()?.webContents.send('clip:stackChanged')
+}
 
 export function startClipboardWatcher(): void {
   if (watcher) return
-  watcher = new ClipboardWatcher(350, () => {
+  watcher = new ClipboardWatcher(350, ({ id }) => {
     getMainWindow()?.webContents.send('clip:itemsChanged')
+    if (stackEnabled) {
+      stackQueue.push({ entryId: randomUUID(), itemId: id, createdAt: Date.now() })
+      notifyStackChanged()
+    }
   })
   watcher.start()
 }
@@ -36,6 +48,94 @@ export function suppressNextClipboardCapture(ms = 800): void {
 
 export function recordLastActiveApp(app: FrontmostAppInfo): void {
   lastActiveApp = app
+}
+
+export function getPasteStackState(): PasteStackState {
+  const ids = Array.from(new Set(stackQueue.map((e) => e.itemId)))
+  const itemsMap = new Map<string, ClipItem>()
+
+  if (ids.length > 0) {
+    const db = getDatabase()
+    const placeholders = ids.map(() => '?').join(', ')
+    const rows = db
+      .prepare(`SELECT * FROM clip_items WHERE id IN (${placeholders})`)
+      .all(...ids) as ClipItem[]
+    rows.forEach((row) => itemsMap.set(row.id, row))
+  }
+
+  return {
+    enabled: stackEnabled,
+    entries: stackQueue.map((entry) => ({
+      entry_id: entry.entryId,
+      item_id: entry.itemId,
+      item: itemsMap.get(entry.itemId) ?? null
+    }))
+  }
+}
+
+export function setPasteStackEnabled(enabled: boolean): void {
+  stackEnabled = enabled
+  if (!stackEnabled) {
+    stackQueue = []
+  }
+  notifyStackChanged()
+}
+
+export function clearPasteStack(): void {
+  stackQueue = []
+  notifyStackChanged()
+}
+
+export function removePasteStackEntry(entryId: string): void {
+  stackQueue = stackQueue.filter((e) => e.entryId !== entryId)
+  notifyStackChanged()
+}
+
+export function reorderPasteStack(entryIds: string[]): void {
+  const map = new Map(stackQueue.map((e) => [e.entryId, e] as const))
+  const next: typeof stackQueue = []
+  for (const id of entryIds) {
+    const entry = map.get(id)
+    if (entry) next.push(entry)
+  }
+  stackQueue = next
+  notifyStackChanged()
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+export async function pastePasteStack(): Promise<void> {
+  if (stackPasting) return
+  stackPasting = true
+
+  try {
+    const entries = [...stackQueue]
+    if (entries.length === 0) return
+
+    // 先隐藏面板，避免按键落在自身窗口上
+    getMainWindow()?.hide()
+
+    if (lastActiveApp) {
+      activateApp(lastActiveApp)
+    }
+
+    for (const entry of entries) {
+      const item = getClipItemById(entry.itemId)
+      if (!item) continue
+
+      writeClipItemToClipboard(item, { plainText: false })
+      suppressNextClipboardCapture(1500)
+      sendCmdVKeystroke()
+      await delay(120)
+    }
+
+    stackQueue = []
+    notifyStackChanged()
+  } finally {
+    stackPasting = false
+  }
 }
 
 function getClipItemById(id: string): ClipItem | null {

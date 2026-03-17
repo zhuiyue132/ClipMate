@@ -156,7 +156,7 @@ export class ClipboardWatcher {
 
   constructor(
     private readonly pollMs: number,
-    private readonly onItemsChanged: () => void
+    private readonly onItemsChanged: (info: { id: string; isDuplicate: boolean }) => void
   ) {}
 
   start(): void {
@@ -228,7 +228,7 @@ export class ClipboardWatcher {
         now,
         this.lastSaved.id
       )
-      this.onItemsChanged()
+      this.onItemsChanged({ id: this.lastSaved.id, isDuplicate: true })
       return
     }
 
@@ -263,6 +263,6 @@ export class ClipboardWatcher {
     })
 
     this.lastSaved = { id, signature: sig }
-    this.onItemsChanged()
+    this.onItemsChanged({ id, isDuplicate: false })
   }
 }

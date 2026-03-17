@@ -32,6 +32,17 @@ export interface SourceAppSummary {
   count: number
 }
 
+export interface PasteStackEntry {
+  entry_id: string
+  item_id: string
+  item: ClipItem | null
+}
+
+export interface PasteStackState {
+  enabled: boolean
+  entries: PasteStackEntry[]
+}
+
 export interface Pinboard {
   id: string
   name: string
@@ -70,6 +81,13 @@ export interface IpcApi {
   copyClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
   onClipItemsChanged: (callback: () => void) => () => void
   onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
+  getPasteStackState: () => Promise<PasteStackState>
+  setPasteStackEnabled: (enabled: boolean) => Promise<void>
+  clearPasteStack: () => Promise<void>
+  removePasteStackEntry: (entryId: string) => Promise<void>
+  reorderPasteStack: (entryIds: string[]) => Promise<void>
+  pastePasteStack: () => Promise<void>
+  onPasteStackChanged: (callback: () => void) => () => void
 
   // Pinboard
   getPinboards: () => Promise<Pinboard[]>

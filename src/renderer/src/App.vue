@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { ClipItem, Pinboard, SearchFilters, SourceAppSummary } from '../../shared/types'
+import type {
+  ClipItem,
+  PasteStackEntry,
+  PasteStackState,
+  Pinboard,
+  SearchFilters,
+  SourceAppSummary
+} from '../../shared/types'
 
 type ContextKind = 'clip' | 'pinboard'
 type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'delete' | 'removeFromPinboard'
@@ -44,6 +51,9 @@ const renameOpen = ref(false)
 const renameDraft = ref('')
 const colorDraft = ref('#007AFF')
 const bulkPinOpen = ref(false)
+const panelMode = ref<'main' | 'stack'>('main')
+const pasteStackState = ref<PasteStackState>({ enabled: false, entries: [] })
+const stackDraggingId = ref<string | null>(null)
 
 const toast = ref<string | null>(null)
 let toastTimer: number | null = null
@@ -234,6 +244,68 @@ async function refreshAfterMutation(): Promise<void> {
   if (isSearchActive.value) {
     await runSearch()
   }
+}
+
+async function refreshPasteStack(): Promise<void> {
+  pasteStackState.value = await window.api.getPasteStackState()
+}
+
+async function openPasteStack(): Promise<void> {
+  closeAllMenus()
+  panelMode.value = 'stack'
+  await window.api.setPasteStackEnabled(true)
+  await refreshPasteStack()
+}
+
+async function exitPasteStack(): Promise<void> {
+  await window.api.setPasteStackEnabled(false)
+  await refreshPasteStack()
+  panelMode.value = 'main'
+}
+
+async function clearPasteStackEntries(): Promise<void> {
+  await window.api.clearPasteStack()
+  await refreshPasteStack()
+}
+
+async function removePasteStackEntryUi(entryId: string): Promise<void> {
+  await window.api.removePasteStackEntry(entryId)
+  await refreshPasteStack()
+}
+
+function stackEntryTitle(entry: PasteStackEntry): string {
+  if (entry.item) return previewText(entry.item)
+  return '(条目已删除)'
+}
+
+function onStackDragStart(ev: DragEvent, entryId: string): void {
+  stackDraggingId.value = entryId
+  ev.dataTransfer?.setData('text/plain', entryId)
+  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
+}
+
+async function onStackDrop(targetEntryId: string): Promise<void> {
+  const fromId = stackDraggingId.value
+  stackDraggingId.value = null
+  if (!fromId || fromId === targetEntryId) return
+
+  const entries = [...pasteStackState.value.entries]
+  const from = entries.findIndex((e) => e.entry_id === fromId)
+  const to = entries.findIndex((e) => e.entry_id === targetEntryId)
+  if (from < 0 || to < 0) return
+
+  const [moved] = entries.splice(from, 1)
+  entries.splice(to, 0, moved)
+  pasteStackState.value = { ...pasteStackState.value, entries }
+
+  await window.api.reorderPasteStack(entries.map((e) => e.entry_id))
+}
+
+async function pasteStackNow(): Promise<void> {
+  if (pasteStackState.value.entries.length === 0) return
+  await window.api.pastePasteStack()
+  await refreshPasteStack()
+  showToast('已按顺序粘贴队列')
 }
 
 function startOfDayTs(date: Date): number {
@@ -767,6 +839,7 @@ async function onPinDrop(targetId: string): Promise<void> {
 
 let unsubItems: (() => void) | null = null
 let unsubState: (() => void) | null = null
+let unsubStack: (() => void) | null = null
 
 watch(
   [search, typeChip, sourceAppFilter, datePreset, customFrom, customTo, activePinboardId],
@@ -793,6 +866,9 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function getPreviewCandidateId(): string | null {
+  if (panelMode.value === 'stack') {
+    return pasteStackState.value.entries[0]?.item_id ?? null
+  }
   if (selectedIds.value.length === 1) return selectedIds.value[0]
   if (hoveredId.value) return hoveredId.value
   return visibleItems.value[0]?.id ?? null
@@ -826,6 +902,19 @@ function onWindowKeyDown(e: KeyboardEvent): void {
 
   if (typing) return
 
+  if (panelMode.value === 'stack') {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      void exitPasteStack()
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void pasteStackNow()
+      return
+    }
+  }
+
   if (e.key === ' ') {
     const id = getPreviewCandidateId()
     if (id) {
@@ -853,7 +942,8 @@ onMounted(async () => {
     refreshState(),
     refreshPinboards(),
     refreshSourceApps(),
-    refreshHistoryItems()
+    refreshHistoryItems(),
+    refreshPasteStack()
   ])
   unsubItems = window.api.onClipItemsChanged(async () => {
     await Promise.all([refreshSourceApps(), refreshHistoryItems()])
@@ -862,6 +952,9 @@ onMounted(async () => {
   })
   unsubState = window.api.onClipStateChanged((state) => {
     paused.value = state.paused
+  })
+  unsubStack = window.api.onPasteStackChanged(() => {
+    void refreshPasteStack()
   })
 
   window.addEventListener('click', closeAllMenus)
@@ -872,6 +965,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   unsubItems?.()
   unsubState?.()
+  unsubStack?.()
   window.removeEventListener('click', closeAllMenus)
   window.removeEventListener('contextmenu', onWindowContextMenu)
   window.removeEventListener('keydown', onWindowKeyDown)
@@ -893,6 +987,9 @@ onBeforeUnmount(() => {
         <button class="menu-item" @click="togglePaused()">
           {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
         </button>
+        <button class="menu-item" @click="openPasteStack()">
+          📦 Paste Stack {{ pasteStackState.enabled ? '· ON' : '' }}
+        </button>
         <button class="menu-item" @click="clearHistory()">🗑 清空历史</button>
         <div class="menu-sep"></div>
         <button class="menu-item danger" @click="quitApp()">⏻ 退出</button>
@@ -901,7 +998,7 @@ onBeforeUnmount(() => {
 
     <main class="app-content">
       <div class="layout">
-        <aside class="sidebar" @click.stop>
+        <aside v-if="panelMode !== 'stack'" class="sidebar" @click.stop>
           <div class="sidebar-header">
             <div class="sidebar-title">Pinboard</div>
             <button class="sidebar-add" title="新建" @click.stop="createPinboard()">＋</button>
@@ -931,285 +1028,347 @@ onBeforeUnmount(() => {
         </aside>
 
         <section class="main-panel">
-          <div class="filters" @click.stop>
-            <div class="chips">
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'all' }"
-                @click="typeChip = 'all'"
-              >
-                全部
-              </button>
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'text' }"
-                @click="typeChip = 'text'"
-              >
-                文本
-              </button>
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'image' }"
-                @click="typeChip = 'image'"
-              >
-                图片
-              </button>
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'link' }"
-                @click="typeChip = 'link'"
-              >
-                链接
-              </button>
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'file' }"
-                @click="typeChip = 'file'"
-              >
-                文件
-              </button>
-              <button
-                class="chip"
-                :class="{ active: typeChip === 'color' }"
-                @click="typeChip = 'color'"
-              >
-                颜色
-              </button>
-            </div>
-
-            <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
-              {{ searching ? '搜索中…' : '筛选' }}
-            </button>
-
-            <div v-if="filtersOpen" class="filter-popover" @click.stop>
-              <div class="filter-group">
-                <div class="filter-label">来源应用</div>
-                <select v-model="sourceAppFilter" class="filter-select">
-                  <option :value="null">全部应用</option>
-                  <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
-                    {{ app.source_app_name || app.source_app }} · {{ app.count }}
-                  </option>
-                </select>
+          <template v-if="panelMode === 'stack'">
+            <div class="stack-header">
+              <div class="stack-title">
+                <span class="stack-icon">⧉</span>
+                <span>Paste Stack</span>
+                <span class="stack-badge" :class="{ on: pasteStackState.enabled }">
+                  {{ pasteStackState.enabled ? 'ON' : 'OFF' }}
+                </span>
               </div>
-
-              <div class="filter-group">
-                <div class="filter-label">日期范围</div>
-                <div class="preset-row">
-                  <button
-                    class="preset"
-                    :class="{ active: datePreset === 'all' }"
-                    @click="datePreset = 'all'"
-                  >
-                    不限
-                  </button>
-                  <button
-                    class="preset"
-                    :class="{ active: datePreset === 'today' }"
-                    @click="datePreset = 'today'"
-                  >
-                    今天
-                  </button>
-                  <button
-                    class="preset"
-                    :class="{ active: datePreset === 'week' }"
-                    @click="datePreset = 'week'"
-                  >
-                    本周
-                  </button>
-                  <button
-                    class="preset"
-                    :class="{ active: datePreset === 'custom' }"
-                    @click="datePreset = 'custom'"
-                  >
-                    自定义
-                  </button>
-                </div>
-
-                <div v-if="datePreset === 'custom'" class="custom-row">
-                  <input v-model="customFrom" type="date" class="date-input" />
-                  <span class="date-sep">–</span>
-                  <input v-model="customTo" type="date" class="date-input" />
-                </div>
+              <div class="stack-actions">
+                <button class="sel-btn danger" @click="exitPasteStack()">退出</button>
+                <button class="sel-btn" @click="clearPasteStackEntries()">清空</button>
+                <button
+                  class="sel-btn"
+                  :disabled="pasteStackState.entries.length === 0"
+                  @click="pasteStackNow()"
+                >
+                  开始粘贴
+                </button>
               </div>
             </div>
-          </div>
 
-          <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
+            <div class="stack-hint">复制会持续追加到队列，按顺序逐条自动粘贴。</div>
 
-          <div v-if="!hasItems && !loading" class="empty-state">
-            <p>
-              {{
-                isSearchActive
-                  ? '没有匹配结果'
-                  : showingHistory
-                    ? 'ClipMate 已就绪'
-                    : 'Pinboard 为空'
-              }}
-            </p>
-            <p class="empty-hint">
-              {{
-                isSearchActive
-                  ? '试试更换关键词或筛选条件'
-                  : showingHistory
-                    ? '复制内容后将自动显示在这里'
-                    : '在历史记录中右键 → 固定到 Pinboard'
-              }}
-            </p>
-          </div>
+            <div v-if="pasteStackState.entries.length === 0" class="empty-state">
+              <p>队列为空</p>
+              <p class="empty-hint">打开 Stack 后，复制内容将自动入队</p>
+            </div>
+
+            <div v-else class="stack-list">
+              <div
+                v-for="(entry, index) in pasteStackState.entries"
+                :key="entry.entry_id"
+                class="stack-row"
+                draggable="true"
+                @dragstart="onStackDragStart($event, entry.entry_id)"
+                @dragover.prevent
+                @drop.prevent="onStackDrop(entry.entry_id)"
+                @click="entry.item && openPreviewById(entry.item_id)"
+              >
+                <div class="stack-index">{{ index + 1 }}</div>
+                <div class="stack-body">
+                  <div class="stack-text">{{ stackEntryTitle(entry) }}</div>
+                  <div class="stack-sub">
+                    {{ entry.item?.source_app_name || '' }}
+                  </div>
+                </div>
+                <button
+                  class="stack-remove"
+                  title="移除"
+                  @click.stop="removePasteStackEntryUi(entry.entry_id)"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+          </template>
 
           <template v-else>
-            <div v-if="showingHistory" class="cards">
-              <div
-                v-for="item in visibleItems"
-                :key="item.id"
-                class="card"
-                :class="{ selected: selectedSet.has(item.id) }"
-                @mouseenter="onItemMouseEnter(item)"
-                @mouseleave="onItemMouseLeave(item)"
-                @click="onItemClick($event, item)"
-                @contextmenu="openClipContextMenu($event, item)"
-              >
-                <div class="card-top">
-                  <div class="badge">{{ typeLabel(item.type) }}</div>
+            <div class="filters" @click.stop>
+              <div class="chips">
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'all' }"
+                  @click="typeChip = 'all'"
+                >
+                  全部
+                </button>
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'text' }"
+                  @click="typeChip = 'text'"
+                >
+                  文本
+                </button>
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'image' }"
+                  @click="typeChip = 'image'"
+                >
+                  图片
+                </button>
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'link' }"
+                  @click="typeChip = 'link'"
+                >
+                  链接
+                </button>
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'file' }"
+                  @click="typeChip = 'file'"
+                >
+                  文件
+                </button>
+                <button
+                  class="chip"
+                  :class="{ active: typeChip === 'color' }"
+                  @click="typeChip = 'color'"
+                >
+                  颜色
+                </button>
+              </div>
+
+              <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
+                {{ searching ? '搜索中…' : '筛选' }}
+              </button>
+
+              <div v-if="filtersOpen" class="filter-popover" @click.stop>
+                <div class="filter-group">
+                  <div class="filter-label">来源应用</div>
+                  <select v-model="sourceAppFilter" class="filter-select">
+                    <option :value="null">全部应用</option>
+                    <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
+                      {{ app.source_app_name || app.source_app }} · {{ app.count }}
+                    </option>
+                  </select>
                 </div>
 
-                <div class="card-body">
-                  <template v-if="item.type === 'image'">
-                    <div class="image-box">
-                      <img v-if="imageSrc(item)" :src="imageSrc(item)!" alt="" />
-                    </div>
-                  </template>
-                  <template v-else-if="item.type === 'color'">
-                    <div class="color-box" :style="{ background: item.content }">
-                      <span class="color-text">{{ item.content }}</span>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <!-- eslint-disable-next-line vue/no-v-html -->
-                    <div class="text-preview" v-html="highlight(previewText(item))"></div>
-                  </template>
-                </div>
+                <div class="filter-group">
+                  <div class="filter-label">日期范围</div>
+                  <div class="preset-row">
+                    <button
+                      class="preset"
+                      :class="{ active: datePreset === 'all' }"
+                      @click="datePreset = 'all'"
+                    >
+                      不限
+                    </button>
+                    <button
+                      class="preset"
+                      :class="{ active: datePreset === 'today' }"
+                      @click="datePreset = 'today'"
+                    >
+                      今天
+                    </button>
+                    <button
+                      class="preset"
+                      :class="{ active: datePreset === 'week' }"
+                      @click="datePreset = 'week'"
+                    >
+                      本周
+                    </button>
+                    <button
+                      class="preset"
+                      :class="{ active: datePreset === 'custom' }"
+                      @click="datePreset = 'custom'"
+                    >
+                      自定义
+                    </button>
+                  </div>
 
-                <div class="card-footer">
-                  <div class="app-pill">
-                    <span class="app-dot">{{ (item.source_app_name || 'App').slice(0, 1) }}</span>
-                    <div class="app-meta">
-                      <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
-                      <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
-                    </div>
+                  <div v-if="datePreset === 'custom'" class="custom-row">
+                    <input v-model="customFrom" type="date" class="date-input" />
+                    <span class="date-sep">–</span>
+                    <input v-model="customTo" type="date" class="date-input" />
                   </div>
                 </div>
               </div>
             </div>
 
-            <div v-else class="pinboard-view">
-              <div class="pinboard-head">
-                <div class="pinboard-name">{{ activePinboard?.name || 'Pinboard' }}</div>
-                <div class="pinboard-count">{{ visibleItems.length }} 项</div>
-              </div>
+            <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
-              <div class="pin-items">
+            <div v-if="!hasItems && !loading" class="empty-state">
+              <p>
+                {{
+                  isSearchActive
+                    ? '没有匹配结果'
+                    : showingHistory
+                      ? 'ClipMate 已就绪'
+                      : 'Pinboard 为空'
+                }}
+              </p>
+              <p class="empty-hint">
+                {{
+                  isSearchActive
+                    ? '试试更换关键词或筛选条件'
+                    : showingHistory
+                      ? '复制内容后将自动显示在这里'
+                      : '在历史记录中右键 → 固定到 Pinboard'
+                }}
+              </p>
+            </div>
+
+            <template v-else>
+              <div v-if="showingHistory" class="cards">
                 <div
-                  v-for="(item, index) in visibleItems"
+                  v-for="item in visibleItems"
                   :key="item.id"
-                  class="pin-row"
+                  class="card"
                   :class="{ selected: selectedSet.has(item.id) }"
-                  :draggable="!isSearchActive"
-                  @dragstart="onPinDragStart($event, item.id)"
-                  @dragover.prevent
-                  @drop.prevent="onPinDrop(item.id)"
                   @mouseenter="onItemMouseEnter(item)"
                   @mouseleave="onItemMouseLeave(item)"
                   @click="onItemClick($event, item)"
                   @contextmenu="openClipContextMenu($event, item)"
                 >
-                  <div class="pin-index">{{ index + 1 }}</div>
-                  <!-- eslint-disable-next-line vue/no-v-html -->
-                  <div class="pin-title" v-html="highlight(previewText(item))"></div>
-                  <button
-                    class="pin-remove"
-                    title="移除"
-                    @click.stop="removeFromActivePinboard(item)"
-                  >
-                    ×
-                  </button>
+                  <div class="card-top">
+                    <div class="badge">{{ typeLabel(item.type) }}</div>
+                  </div>
+
+                  <div class="card-body">
+                    <template v-if="item.type === 'image'">
+                      <div class="image-box">
+                        <img v-if="imageSrc(item)" :src="imageSrc(item)!" alt="" />
+                      </div>
+                    </template>
+                    <template v-else-if="item.type === 'color'">
+                      <div class="color-box" :style="{ background: item.content }">
+                        <span class="color-text">{{ item.content }}</span>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <div class="text-preview" v-html="highlight(previewText(item))"></div>
+                    </template>
+                  </div>
+
+                  <div class="card-footer">
+                    <div class="app-pill">
+                      <span class="app-dot">{{ (item.source_app_name || 'App').slice(0, 1) }}</span>
+                      <div class="app-meta">
+                        <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
+                        <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </template>
 
-          <div
-            v-if="ctxOpen"
-            class="ctx-menu"
-            :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
-            @click.stop
-          >
-            <template v-if="ctxKind === 'clip'">
-              <button class="menu-item" @click="previewFromContext()">👁 预览</button>
-              <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
-              <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
-              <button class="menu-item" @click="runClipAction('pastePlain')">
-                Tt 粘贴为纯文本
-              </button>
-              <button class="menu-item" @click.stop="pinPickerOpen = !pinPickerOpen">
-                📌 固定到 Pinboard
-              </button>
-              <div v-if="pinPickerOpen" class="submenu">
+              <div v-else class="pinboard-view">
+                <div class="pinboard-head">
+                  <div class="pinboard-name">{{ activePinboard?.name || 'Pinboard' }}</div>
+                  <div class="pinboard-count">{{ visibleItems.length }} 项</div>
+                </div>
+
+                <div class="pin-items">
+                  <div
+                    v-for="(item, index) in visibleItems"
+                    :key="item.id"
+                    class="pin-row"
+                    :class="{ selected: selectedSet.has(item.id) }"
+                    :draggable="!isSearchActive"
+                    @dragstart="onPinDragStart($event, item.id)"
+                    @dragover.prevent
+                    @drop.prevent="onPinDrop(item.id)"
+                    @mouseenter="onItemMouseEnter(item)"
+                    @mouseleave="onItemMouseLeave(item)"
+                    @click="onItemClick($event, item)"
+                    @contextmenu="openClipContextMenu($event, item)"
+                  >
+                    <div class="pin-index">{{ index + 1 }}</div>
+                    <!-- eslint-disable-next-line vue/no-v-html -->
+                    <div class="pin-title" v-html="highlight(previewText(item))"></div>
+                    <button
+                      class="pin-remove"
+                      title="移除"
+                      @click.stop="removeFromActivePinboard(item)"
+                    >
+                      ×
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <div
+              v-if="ctxOpen"
+              class="ctx-menu"
+              :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
+              @click.stop
+            >
+              <template v-if="ctxKind === 'clip'">
+                <button class="menu-item" @click="previewFromContext()">👁 预览</button>
+                <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
+                <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
+                <button class="menu-item" @click="runClipAction('pastePlain')">
+                  Tt 粘贴为纯文本
+                </button>
+                <button class="menu-item" @click.stop="pinPickerOpen = !pinPickerOpen">
+                  📌 固定到 Pinboard
+                </button>
+                <div v-if="pinPickerOpen" class="submenu">
+                  <button
+                    v-for="pb in pinboards"
+                    :key="pb.id"
+                    class="menu-item submenu-item"
+                    @click="addToPinboard(pb.id)"
+                  >
+                    <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
+                    {{ pb.name }}
+                  </button>
+                </div>
+                <button
+                  v-if="activePinboardId"
+                  class="menu-item"
+                  @click="runClipAction('removeFromPinboard')"
+                >
+                  ➖ 从当前 Pinboard 移除
+                </button>
+                <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
+                <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
+                <div class="menu-sep"></div>
+                <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
+              </template>
+
+              <template v-else-if="ctxKind === 'pinboard'">
+                <button class="menu-item" @click="runPinboardAction('rename')">✏️ 重命名</button>
+                <div class="menu-sep"></div>
+                <button class="menu-item danger" @click="runPinboardAction('delete')">
+                  🗑 删除
+                </button>
+              </template>
+            </div>
+
+            <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
+              <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
+              <div class="sel-actions">
+                <button class="sel-btn" @click.stop="bulkPinOpen = !bulkPinOpen">📌 固定…</button>
+                <button v-if="activePinboardId" class="sel-btn" @click="bulkRemoveFromPinboard()">
+                  ➖ 移除
+                </button>
+                <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
+                <button class="sel-btn" @click="clearSelection()">取消</button>
+              </div>
+
+              <div v-if="bulkPinOpen" class="sel-popover" @click.stop>
                 <button
                   v-for="pb in pinboards"
                   :key="pb.id"
-                  class="menu-item submenu-item"
-                  @click="addToPinboard(pb.id)"
+                  class="sel-item"
+                  @click="bulkPinTo(pb.id)"
                 >
                   <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
                   {{ pb.name }}
                 </button>
               </div>
-              <button
-                v-if="activePinboardId"
-                class="menu-item"
-                @click="runClipAction('removeFromPinboard')"
-              >
-                ➖ 从当前 Pinboard 移除
-              </button>
-              <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
-              <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
-              <div class="menu-sep"></div>
-              <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
-            </template>
-
-            <template v-else-if="ctxKind === 'pinboard'">
-              <button class="menu-item" @click="runPinboardAction('rename')">✏️ 重命名</button>
-              <div class="menu-sep"></div>
-              <button class="menu-item danger" @click="runPinboardAction('delete')">🗑 删除</button>
-            </template>
-          </div>
+            </div>
+          </template>
 
           <div v-if="toast" class="toast" @click.stop>{{ toast }}</div>
-
-          <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
-            <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
-            <div class="sel-actions">
-              <button class="sel-btn" @click.stop="bulkPinOpen = !bulkPinOpen">📌 固定…</button>
-              <button v-if="activePinboardId" class="sel-btn" @click="bulkRemoveFromPinboard()">
-                ➖ 移除
-              </button>
-              <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
-              <button class="sel-btn" @click="clearSelection()">取消</button>
-            </div>
-
-            <div v-if="bulkPinOpen" class="sel-popover" @click.stop>
-              <button
-                v-for="pb in pinboards"
-                :key="pb.id"
-                class="sel-item"
-                @click="bulkPinTo(pb.id)"
-              >
-                <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
-                {{ pb.name }}
-              </button>
-            </div>
-          </div>
         </section>
       </div>
     </main>
@@ -2072,6 +2231,139 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.stack-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.stack-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.stack-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 10px;
+  background: rgba(0, 122, 255, 0.18);
+  border: 1px solid var(--border-color);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+.stack-badge {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+}
+
+.stack-badge.on {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.16);
+  color: var(--text-primary);
+}
+
+.stack-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.stack-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.stack-list {
+  flex: 1;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-right: 2px;
+}
+
+.stack-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.stack-row:hover {
+  border-color: rgba(0, 122, 255, 0.3);
+}
+
+.stack-index {
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 122, 255, 0.18);
+  border: 1px solid var(--border-color);
+  font-weight: 800;
+}
+
+.stack-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.stack-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-remove {
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.stack-remove:hover {
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 
 .pinboard-head {
