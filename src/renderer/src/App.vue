@@ -30,6 +30,24 @@ const customTo = ref('')
 const searchResults = ref<ClipItem[] | null>(null)
 const searching = ref(false)
 
+const selectedIds = ref<string[]>([])
+const anchorId = ref<string | null>(null)
+const hoveredId = ref<string | null>(null)
+const selectedSet = computed(() => new Set(selectedIds.value))
+
+const previewOpen = ref(false)
+const previewItem = ref<ClipItem | null>(null)
+const previewLoading = ref(false)
+const editMode = ref(false)
+const editText = ref('')
+const renameOpen = ref(false)
+const renameDraft = ref('')
+const colorDraft = ref('#007AFF')
+const bulkPinOpen = ref(false)
+
+const toast = ref<string | null>(null)
+let toastTimer: number | null = null
+
 const ctxOpen = ref(false)
 const ctxX = ref(0)
 const ctxY = ref(0)
@@ -62,6 +80,21 @@ const visibleItems = computed(() => {
 })
 
 const hasItems = computed(() => visibleItems.value.length > 0)
+
+const previewLinkMeta = computed(() => {
+  const item = previewItem.value
+  if (!item || item.type !== 'link' || !item.link_meta) return null
+  try {
+    const meta = JSON.parse(item.link_meta) as {
+      title?: string
+      description?: string
+      image?: string
+    }
+    return meta
+  } catch {
+    return null
+  }
+})
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts
@@ -105,7 +138,28 @@ function previewText(item: ClipItem): string {
       return item.plain_text || '文件'
     }
   }
+  if (item.type === 'link' && item.link_meta) {
+    try {
+      const meta = JSON.parse(item.link_meta) as { title?: string }
+      if (meta?.title) return meta.title
+    } catch {
+      // ignore
+    }
+  }
   return (item.plain_text || item.content || '').slice(0, 80)
+}
+
+function getFilePaths(item: ClipItem): string[] {
+  if (item.type !== 'file') return []
+  try {
+    const parsed = JSON.parse(item.content) as { paths?: string[] }
+    return parsed.paths ?? []
+  } catch {
+    return (item.plain_text ?? '')
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  }
 }
 
 function escapeHtml(text: string): string {
@@ -282,6 +336,7 @@ async function refreshState(): Promise<void> {
 function closeAllMenus(): void {
   moreOpen.value = false
   filtersOpen.value = false
+  bulkPinOpen.value = false
   ctxOpen.value = false
   ctxKind.value = null
   ctxItem.value = null
@@ -289,8 +344,76 @@ function closeAllMenus(): void {
   pinPickerOpen.value = false
 }
 
+function showToast(message: string): void {
+  toast.value = message
+  if (toastTimer) window.clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => {
+    toast.value = null
+    toastTimer = null
+  }, 1800)
+}
+
+function clearSelection(): void {
+  selectedIds.value = []
+  anchorId.value = null
+}
+
+function toggleSelection(itemId: string): void {
+  const list = [...selectedIds.value]
+  const idx = list.indexOf(itemId)
+  if (idx >= 0) {
+    list.splice(idx, 1)
+  } else {
+    list.push(itemId)
+  }
+  selectedIds.value = list
+  anchorId.value = itemId
+}
+
+function selectOnly(itemId: string): void {
+  selectedIds.value = [itemId]
+  anchorId.value = itemId
+}
+
+function selectRange(toId: string): void {
+  const items = visibleItems.value
+  const fromId = anchorId.value ?? toId
+  const from = items.findIndex((i) => i.id === fromId)
+  const to = items.findIndex((i) => i.id === toId)
+  if (from < 0 || to < 0) {
+    selectOnly(toId)
+    return
+  }
+  const [start, end] = from < to ? [from, to] : [to, from]
+  selectedIds.value = items.slice(start, end + 1).map((i) => i.id)
+}
+
 async function onCardClick(item: ClipItem): Promise<void> {
   await window.api.pasteClipItem(item.id)
+}
+
+function onItemClick(ev: MouseEvent, item: ClipItem): void {
+  if (ev.shiftKey) {
+    selectRange(item.id)
+    return
+  }
+  if (ev.metaKey || ev.ctrlKey) {
+    toggleSelection(item.id)
+    return
+  }
+  if (selectedIds.value.length > 0) {
+    selectOnly(item.id)
+    return
+  }
+  void onCardClick(item)
+}
+
+function onItemMouseEnter(item: ClipItem): void {
+  hoveredId.value = item.id
+}
+
+function onItemMouseLeave(item: ClipItem): void {
+  if (hoveredId.value === item.id) hoveredId.value = null
 }
 
 function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
@@ -303,6 +426,202 @@ function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
   ctxOpen.value = true
   moreOpen.value = false
   pinPickerOpen.value = false
+}
+
+async function openPreviewById(itemId: string): Promise<void> {
+  previewLoading.value = true
+  try {
+    const item = await window.api.getClipItem(itemId)
+    if (!item) return
+    previewItem.value = item
+    previewOpen.value = true
+    editMode.value = false
+    editText.value = item.plain_text ?? item.content ?? ''
+    renameOpen.value = false
+    renameDraft.value = item.title ?? ''
+    if (item.type === 'color') {
+      colorDraft.value = item.content
+    }
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closePreview(): void {
+  previewOpen.value = false
+  previewItem.value = null
+  editMode.value = false
+  renameOpen.value = false
+}
+
+async function copyPreview(plainText = true): Promise<void> {
+  if (!previewItem.value) return
+  await window.api.copyClipItem(previewItem.value.id, { plainText })
+  showToast('已复制')
+}
+
+async function pastePreview(plainText = false): Promise<void> {
+  if (!previewItem.value) return
+  await window.api.pasteClipItem(previewItem.value.id, { plainText })
+  closePreview()
+}
+
+function toggleEdit(): void {
+  if (!previewItem.value) return
+  if (previewItem.value.type !== 'text' && previewItem.value.type !== 'richtext') return
+  editMode.value = !editMode.value
+  if (editMode.value) {
+    editText.value = previewItem.value.plain_text ?? previewItem.value.content ?? ''
+  }
+}
+
+function toggleRename(): void {
+  if (!previewItem.value) return
+  renameOpen.value = !renameOpen.value
+  if (renameOpen.value) {
+    renameDraft.value = previewItem.value.title ?? ''
+  }
+}
+
+async function saveRename(): Promise<void> {
+  if (!previewItem.value) return
+  await window.api.updateClipItemTitle(previewItem.value.id, renameDraft.value || null)
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(previewItem.value.id)
+  renameOpen.value = false
+  showToast('已保存名称')
+}
+
+async function saveTextEdit(): Promise<void> {
+  if (!previewItem.value) return
+  await window.api.updateClipItemText(previewItem.value.id, editText.value)
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(previewItem.value.id)
+  editMode.value = false
+  showToast('已保存文本')
+}
+
+async function saveColor(): Promise<void> {
+  if (!previewItem.value) return
+  await window.api.updateClipItemColor(previewItem.value.id, colorDraft.value)
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(previewItem.value.id)
+  showToast('已更新颜色')
+}
+
+function dataUrlToBase64(dataUrl: string): string {
+  const idx = dataUrl.indexOf(',')
+  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('Image load failed'))
+    img.src = dataUrl
+  })
+}
+
+async function rotateImage(direction: 'left' | 'right'): Promise<void> {
+  const item = previewItem.value
+  if (!item || item.type !== 'image') return
+
+  const img = await loadImage(`data:image/png;base64,${item.content}`)
+  const canvas = document.createElement('canvas')
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  canvas.width = img.height
+  canvas.height = img.width
+
+  ctx.translate(canvas.width / 2, canvas.height / 2)
+  ctx.rotate(direction === 'right' ? Math.PI / 2 : -Math.PI / 2)
+  ctx.drawImage(img, -img.width / 2, -img.height / 2)
+
+  const rotatedDataUrl = canvas.toDataURL('image/png')
+  const contentBase64 = dataUrlToBase64(rotatedDataUrl)
+
+  // thumbnail
+  const thumbCanvas = document.createElement('canvas')
+  const thumbCtx = thumbCanvas.getContext('2d')
+  if (!thumbCtx) return
+  const thumbWidth = 320
+  const scale = thumbWidth / canvas.width
+  thumbCanvas.width = thumbWidth
+  thumbCanvas.height = Math.max(1, Math.round(canvas.height * scale))
+  thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height)
+  const thumbnailBase64 = dataUrlToBase64(thumbCanvas.toDataURL('image/png'))
+
+  await window.api.updateClipItemImage(item.id, { contentBase64, thumbnailBase64 })
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(item.id)
+  showToast('已旋转图片')
+}
+
+async function renameFromContext(): Promise<void> {
+  const item = ctxItem.value
+  if (!item) return
+  const next = window.prompt('重命名条目', item.title || '')?.trim()
+  if (next === undefined) return
+  await window.api.updateClipItemTitle(item.id, next || null)
+  await refreshAfterMutation()
+  closeAllMenus()
+}
+
+async function shareFromContext(): Promise<void> {
+  const item = ctxItem.value
+  if (!item) return
+  await window.api.copyClipItem(item.id, { plainText: true })
+  showToast('已复制到剪贴板，可粘贴分享')
+  closeAllMenus()
+}
+
+async function previewFromContext(): Promise<void> {
+  const item = ctxItem.value
+  if (!item) return
+  closeAllMenus()
+  await openPreviewById(item.id)
+}
+
+async function deleteFromPreview(): Promise<void> {
+  const item = previewItem.value
+  if (!item) return
+  const ok = window.confirm('确定删除该条目？')
+  if (!ok) return
+  await window.api.deleteClipItem(item.id)
+  await refreshAfterMutation()
+  closePreview()
+  showToast('已删除条目')
+}
+
+async function bulkPinTo(pinboardId: string): Promise<void> {
+  if (selectedIds.value.length === 0) return
+  await window.api.addItemsToPinboard(pinboardId, selectedIds.value)
+  await refreshAfterMutation()
+  bulkPinOpen.value = false
+  clearSelection()
+  showToast('已固定到 Pinboard')
+}
+
+async function bulkDelete(): Promise<void> {
+  if (selectedIds.value.length === 0) return
+  const ok = window.confirm(`确定删除选中的 ${selectedIds.value.length} 项？`)
+  if (!ok) return
+  await window.api.deleteClipItems(selectedIds.value)
+  await refreshAfterMutation()
+  clearSelection()
+  showToast('已删除所选条目')
+}
+
+async function bulkRemoveFromPinboard(): Promise<void> {
+  if (!activePinboardId.value) return
+  if (selectedIds.value.length === 0) return
+  const ids = [...selectedIds.value]
+  await Promise.all(ids.map((id) => window.api.removeItemFromPinboard(activePinboardId.value!, id)))
+  await refreshAfterMutation()
+  clearSelection()
+  showToast('已从 Pinboard 移除')
 }
 
 function openPinboardContextMenu(ev: MouseEvent, pinboard: Pinboard): void {
@@ -452,6 +771,7 @@ let unsubState: (() => void) | null = null
 watch(
   [search, typeChip, sourceAppFilter, datePreset, customFrom, customTo, activePinboardId],
   () => {
+    clearSelection()
     scheduleSearch()
   }
 )
@@ -462,6 +782,69 @@ function onWindowContextMenu(e: MouseEvent): void {
     !(e.target as HTMLElement | null)?.closest?.('.sidebar-item')
   ) {
     closeAllMenus()
+  }
+}
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  const el = target as HTMLElement | null
+  if (!el) return false
+  const tag = el.tagName?.toLowerCase()
+  return tag === 'input' || tag === 'textarea' || Boolean(el.isContentEditable)
+}
+
+function getPreviewCandidateId(): string | null {
+  if (selectedIds.value.length === 1) return selectedIds.value[0]
+  if (hoveredId.value) return hoveredId.value
+  return visibleItems.value[0]?.id ?? null
+}
+
+function onWindowKeyDown(e: KeyboardEvent): void {
+  const typing = isTypingTarget(e.target)
+
+  if (previewOpen.value) {
+    if (e.key === 'Escape' || e.key === ' ') {
+      e.preventDefault()
+      closePreview()
+      return
+    }
+
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      if (editMode.value) {
+        e.preventDefault()
+        void saveTextEdit()
+      }
+      return
+    }
+
+    if (!typing && e.key === 'Enter' && previewItem.value) {
+      e.preventDefault()
+      void pastePreview(false)
+    }
+
+    return
+  }
+
+  if (typing) return
+
+  if (e.key === ' ') {
+    const id = getPreviewCandidateId()
+    if (id) {
+      e.preventDefault()
+      void openPreviewById(id)
+    }
+  }
+
+  if (e.key === 'Escape') {
+    if (selectedIds.value.length > 0) {
+      e.preventDefault()
+      clearSelection()
+    }
+    closeAllMenus()
+  }
+
+  if ((e.key === 'Backspace' || e.key === 'Delete') && selectedIds.value.length > 0) {
+    e.preventDefault()
+    void bulkDelete()
   }
 }
 
@@ -483,6 +866,7 @@ onMounted(async () => {
 
   window.addEventListener('click', closeAllMenus)
   window.addEventListener('contextmenu', onWindowContextMenu)
+  window.addEventListener('keydown', onWindowKeyDown)
 })
 
 onBeforeUnmount(() => {
@@ -490,6 +874,9 @@ onBeforeUnmount(() => {
   unsubState?.()
   window.removeEventListener('click', closeAllMenus)
   window.removeEventListener('contextmenu', onWindowContextMenu)
+  window.removeEventListener('keydown', onWindowKeyDown)
+  if (toastTimer) window.clearTimeout(toastTimer)
+  if (searchTimer) window.clearTimeout(searchTimer)
 })
 </script>
 
@@ -676,7 +1063,10 @@ onBeforeUnmount(() => {
                 v-for="item in visibleItems"
                 :key="item.id"
                 class="card"
-                @click="onCardClick(item)"
+                :class="{ selected: selectedSet.has(item.id) }"
+                @mouseenter="onItemMouseEnter(item)"
+                @mouseleave="onItemMouseLeave(item)"
+                @click="onItemClick($event, item)"
                 @contextmenu="openClipContextMenu($event, item)"
               >
                 <div class="card-top">
@@ -723,11 +1113,14 @@ onBeforeUnmount(() => {
                   v-for="(item, index) in visibleItems"
                   :key="item.id"
                   class="pin-row"
+                  :class="{ selected: selectedSet.has(item.id) }"
                   :draggable="!isSearchActive"
                   @dragstart="onPinDragStart($event, item.id)"
                   @dragover.prevent
                   @drop.prevent="onPinDrop(item.id)"
-                  @click="onCardClick(item)"
+                  @mouseenter="onItemMouseEnter(item)"
+                  @mouseleave="onItemMouseLeave(item)"
+                  @click="onItemClick($event, item)"
                   @contextmenu="openClipContextMenu($event, item)"
                 >
                   <div class="pin-index">{{ index + 1 }}</div>
@@ -752,6 +1145,7 @@ onBeforeUnmount(() => {
             @click.stop
           >
             <template v-if="ctxKind === 'clip'">
+              <button class="menu-item" @click="previewFromContext()">👁 预览</button>
               <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
               <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
               <button class="menu-item" @click="runClipAction('pastePlain')">
@@ -778,6 +1172,8 @@ onBeforeUnmount(() => {
               >
                 ➖ 从当前 Pinboard 移除
               </button>
+              <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
+              <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
               <div class="menu-sep"></div>
               <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
             </template>
@@ -788,9 +1184,151 @@ onBeforeUnmount(() => {
               <button class="menu-item danger" @click="runPinboardAction('delete')">🗑 删除</button>
             </template>
           </div>
+
+          <div v-if="toast" class="toast" @click.stop>{{ toast }}</div>
+
+          <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
+            <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
+            <div class="sel-actions">
+              <button class="sel-btn" @click.stop="bulkPinOpen = !bulkPinOpen">📌 固定…</button>
+              <button v-if="activePinboardId" class="sel-btn" @click="bulkRemoveFromPinboard()">
+                ➖ 移除
+              </button>
+              <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
+              <button class="sel-btn" @click="clearSelection()">取消</button>
+            </div>
+
+            <div v-if="bulkPinOpen" class="sel-popover" @click.stop>
+              <button
+                v-for="pb in pinboards"
+                :key="pb.id"
+                class="sel-item"
+                @click="bulkPinTo(pb.id)"
+              >
+                <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
+                {{ pb.name }}
+              </button>
+            </div>
+          </div>
         </section>
       </div>
     </main>
+
+    <div v-if="previewOpen" class="preview-overlay" @click.self="closePreview">
+      <div class="preview-window" @click.stop>
+        <div class="preview-header">
+          <div class="preview-left">
+            <div class="badge">
+              {{ previewItem ? typeLabel(previewItem.type) : '预览' }}
+            </div>
+            <div class="preview-sub">
+              {{
+                previewItem
+                  ? `${previewItem.source_app_name || '未知来源'} · ${formatRelativeTime(
+                      previewItem.created_at
+                    )}`
+                  : ''
+              }}
+            </div>
+          </div>
+
+          <div class="preview-actions">
+            <button class="icon-btn" title="复制" @click="copyPreview(true)">📄</button>
+            <button class="icon-btn" title="粘贴" @click="pastePreview(false)">📋</button>
+            <button
+              v-if="previewItem && (previewItem.type === 'text' || previewItem.type === 'richtext')"
+              class="icon-btn"
+              :class="{ active: editMode }"
+              title="编辑"
+              @click="toggleEdit()"
+            >
+              ✏️
+            </button>
+            <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">
+              💾
+            </button>
+            <button
+              class="icon-btn"
+              :class="{ active: renameOpen }"
+              title="重命名"
+              @click="toggleRename()"
+            >
+              🏷
+            </button>
+            <button class="icon-btn danger" title="删除" @click="deleteFromPreview()">🗑</button>
+            <button class="icon-btn" title="关闭" @click="closePreview()">✕</button>
+          </div>
+        </div>
+
+        <div class="preview-body">
+          <div v-if="previewLoading" class="preview-loading">加载中…</div>
+
+          <template v-else-if="previewItem">
+            <div v-if="renameOpen" class="rename-row">
+              <input v-model="renameDraft" class="rename-input" placeholder="名称（可选）" />
+              <button class="primary-btn" @click="saveRename()">保存</button>
+            </div>
+
+            <template v-if="previewItem.type === 'text' || previewItem.type === 'richtext'">
+              <textarea v-if="editMode" v-model="editText" class="edit-area"></textarea>
+              <pre v-else class="preview-text">{{
+                previewItem.plain_text || previewItem.content
+              }}</pre>
+            </template>
+
+            <template v-else-if="previewItem.type === 'link'">
+              <div v-if="previewLinkMeta" class="link-meta-card">
+                <img
+                  v-if="previewLinkMeta.image"
+                  class="link-thumb"
+                  :src="previewLinkMeta.image"
+                  alt=""
+                />
+                <div class="link-meta-text">
+                  <div class="link-title">{{ previewLinkMeta.title || previewItem.content }}</div>
+                  <div v-if="previewLinkMeta.description" class="link-desc">
+                    {{ previewLinkMeta.description }}
+                  </div>
+                </div>
+              </div>
+              <webview class="webview" :src="previewItem.content"></webview>
+            </template>
+
+            <template v-else-if="previewItem.type === 'image'">
+              <div class="image-preview-lg">
+                <img :src="`data:image/png;base64,${previewItem.content}`" alt="" />
+              </div>
+              <div class="image-tools">
+                <button class="tool-btn" @click="rotateImage('left')">⟲</button>
+                <button class="tool-btn" @click="rotateImage('right')">⟳</button>
+              </div>
+            </template>
+
+            <template v-else-if="previewItem.type === 'color'">
+              <div class="color-preview-lg" :style="{ background: colorDraft }">
+                <div class="color-value">{{ colorDraft }}</div>
+              </div>
+              <div class="color-tools">
+                <input v-model="colorDraft" type="color" class="color-input" />
+                <button class="primary-btn" @click="saveColor()">保存</button>
+              </div>
+            </template>
+
+            <template v-else-if="previewItem.type === 'file'">
+              <div class="file-list">
+                <div v-for="p in getFilePaths(previewItem)" :key="p" class="file-row">{{ p }}</div>
+              </div>
+            </template>
+          </template>
+        </div>
+
+        <div class="preview-footer">
+          <span class="hint">空格 / ESC 关闭</span>
+          <span v-if="editMode" class="hint">⌘S 保存</span>
+          <span class="hint">回车直接粘贴</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1054,6 +1592,8 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-height: 0;
+  position: relative;
+  padding-bottom: 58px;
 }
 
 .filters {
@@ -1247,6 +1787,11 @@ body {
   border-color: rgba(0, 122, 255, 0.3);
 }
 
+.card.selected {
+  border-color: rgba(0, 122, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+}
+
 .card-top {
   display: flex;
   align-items: center;
@@ -1406,6 +1951,107 @@ body {
   margin: 6px 6px;
 }
 
+.toast {
+  position: absolute;
+  left: 12px;
+  bottom: 64px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--text-primary);
+  z-index: 20;
+  max-width: 520px;
+}
+
+.selection-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border-color);
+  background: rgba(0, 0, 0, 0.03);
+  backdrop-filter: blur(18px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  z-index: 15;
+}
+
+@media (prefers-color-scheme: dark) {
+  .selection-bar {
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.sel-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.sel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.sel-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.sel-btn:hover {
+  background: var(--bg-surface);
+}
+
+.sel-btn.danger {
+  color: var(--danger-color);
+}
+
+.sel-popover {
+  position: absolute;
+  right: 12px;
+  bottom: 50px;
+  width: 260px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 8px;
+}
+
+.sel-item {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 10px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sel-item:hover {
+  background: var(--bg-surface);
+}
+
 .submenu {
   margin: 6px 6px 2px;
   border: 1px solid var(--border-color);
@@ -1470,6 +2116,11 @@ body {
   border-color: rgba(0, 122, 255, 0.3);
 }
 
+.pin-row.selected {
+  border-color: rgba(0, 122, 255, 0.65);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
+}
+
 .pin-index {
   width: 30px;
   height: 30px;
@@ -1505,5 +2156,301 @@ body {
 .pin-remove:hover {
   background: var(--bg-card);
   color: var(--text-primary);
+}
+
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.38);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  -webkit-app-region: no-drag;
+}
+
+.preview-window {
+  width: min(980px, calc(100vw - 24px));
+  height: min(640px, calc(100vh - 24px));
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.preview-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.preview-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.icon-btn:hover {
+  background: var(--bg-surface);
+}
+
+.icon-btn.active {
+  border-color: rgba(0, 122, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
+}
+
+.icon-btn.danger {
+  color: var(--danger-color);
+}
+
+.preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.preview-loading {
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 10px;
+}
+
+.rename-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.rename-input {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+}
+
+.primary-btn {
+  border: 1px solid rgba(0, 122, 255, 0.35);
+  background: rgba(0, 122, 255, 0.18);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.primary-btn:hover {
+  background: rgba(0, 122, 255, 0.24);
+}
+
+.preview-text {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+.edit-area {
+  width: 100%;
+  min-height: 260px;
+  resize: none;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 14px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.link-meta-card {
+  display: flex;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  margin-bottom: 12px;
+}
+
+.link-thumb {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+  object-fit: cover;
+  border: 1px solid var(--border-color);
+}
+
+.link-meta-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.webview {
+  width: 100%;
+  height: 320px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+}
+
+.image-preview-lg {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  overflow: hidden;
+  background: var(--bg-surface);
+}
+
+.image-preview-lg img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.image-tools {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tool-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.tool-btn:hover {
+  background: var(--bg-card);
+}
+
+.color-preview-lg {
+  height: 180px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-start;
+  padding: 12px;
+}
+
+.color-value {
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.color-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.color-input {
+  width: 44px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--bg-surface);
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-row {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview-footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 </style>

@@ -31,10 +31,58 @@ export function setupIpcHandlers(): void {
     return stmt.get(id) || null
   })
 
+  ipcMain.handle('db:updateClipItemTitle', (_event, id: string, title: string | null) => {
+    const db = getDatabase()
+    const next = title?.trim() ? title.trim() : null
+    db.prepare('UPDATE clip_items SET title = ?, updated_at = ? WHERE id = ?').run(
+      next,
+      Date.now(),
+      id
+    )
+  })
+
+  ipcMain.handle('db:updateClipItemText', (_event, id: string, text: string) => {
+    const db = getDatabase()
+    const next = text ?? ''
+    db.prepare(
+      'UPDATE clip_items SET type = ?, content = ?, plain_text = ?, updated_at = ? WHERE id = ?'
+    ).run('text', next, next, Date.now(), id)
+  })
+
+  ipcMain.handle('db:updateClipItemColor', (_event, id: string, color: string) => {
+    const db = getDatabase()
+    const next = color?.trim() ?? ''
+    db.prepare(
+      'UPDATE clip_items SET content = ?, plain_text = ?, updated_at = ? WHERE id = ?'
+    ).run(next, next, Date.now(), id)
+  })
+
+  ipcMain.handle(
+    'db:updateClipItemImage',
+    (_event, id: string, payload: { contentBase64: string; thumbnailBase64?: string | null }) => {
+      const db = getDatabase()
+      const thumb =
+        payload.thumbnailBase64 && payload.thumbnailBase64.length > 0
+          ? Buffer.from(payload.thumbnailBase64, 'base64')
+          : null
+      db.prepare(
+        'UPDATE clip_items SET content = ?, thumbnail = ?, updated_at = ? WHERE id = ?'
+      ).run(payload.contentBase64, thumb, Date.now(), id)
+    }
+  )
+
   ipcMain.handle('db:deleteClipItem', (_event, id: string) => {
     const db = getDatabase()
     const stmt = db.prepare('DELETE FROM clip_items WHERE id = ?')
     stmt.run(id)
+  })
+
+  ipcMain.handle('db:deleteClipItems', (_event, ids: string[]) => {
+    const db = getDatabase()
+    const list = Array.from(new Set((ids ?? []).filter(Boolean)))
+    if (list.length === 0) return
+    const placeholders = list.map(() => '?').join(', ')
+    db.prepare(`DELETE FROM clip_items WHERE id IN (${placeholders})`).run(...list)
   })
 
   ipcMain.handle('db:clearHistory', () => {
@@ -207,6 +255,29 @@ export function setupIpcHandlers(): void {
     const tx = db.transaction(() => {
       insert.run(pinboardId, itemId, sortOrder)
       updatePinnedFlag(itemId)
+    })
+    tx()
+  })
+
+  ipcMain.handle('db:addItemsToPinboard', (_event, pinboardId: string, itemIds: string[]) => {
+    const db = getDatabase()
+    const unique = Array.from(new Set((itemIds ?? []).filter(Boolean)))
+    if (unique.length === 0) return
+
+    const maxOrder = db
+      .prepare('SELECT MAX(sort_order) as max FROM pinboard_items WHERE pinboard_id = ?')
+      .get(pinboardId) as { max: number | null }
+    let sortOrder = (maxOrder?.max ?? -1) + 1
+
+    const insert = db.prepare(
+      'INSERT OR IGNORE INTO pinboard_items (pinboard_id, item_id, sort_order) VALUES (?, ?, ?)'
+    )
+
+    const tx = db.transaction(() => {
+      for (const itemId of unique) {
+        insert.run(pinboardId, itemId, sortOrder++)
+        updatePinnedFlag(itemId)
+      }
     })
     tx()
   })

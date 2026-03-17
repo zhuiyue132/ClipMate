@@ -50,7 +50,15 @@ export interface IpcApi {
   // Database
   getClipItems: (limit?: number, offset?: number) => Promise<ClipItem[]>
   getClipItem: (id: string) => Promise<ClipItem | null>
+  updateClipItemTitle: (id: string, title: string | null) => Promise<void>
+  updateClipItemText: (id: string, text: string) => Promise<void>
+  updateClipItemColor: (id: string, color: string) => Promise<void>
+  updateClipItemImage: (
+    id: string,
+    payload: { contentBase64: string; thumbnailBase64?: string | null }
+  ) => Promise<void>
   deleteClipItem: (id: string) => Promise<void>
+  deleteClipItems: (ids: string[]) => Promise<void>
   clearHistory: () => Promise<void>
   searchClipItems: (filters: SearchFilters) => Promise<ClipItem[]>
   getSourceApps: () => Promise<SourceAppSummary[]>
@@ -70,6 +78,7 @@ export interface IpcApi {
   renamePinboard: (id: string, name: string) => Promise<void>
   getPinboardItems: (pinboardId: string) => Promise<ClipItem[]>
   addItemToPinboard: (pinboardId: string, itemId: string) => Promise<void>
+  addItemsToPinboard: (pinboardId: string, itemIds: string[]) => Promise<void>
   removeItemFromPinboard: (pinboardId: string, itemId: string) => Promise<void>
   reorderPinboardItems: (pinboardId: string, itemIds: string[]) => Promise<void>
 

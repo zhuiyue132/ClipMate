@@ -28,7 +28,8 @@ export function createMainWindow(): BrowserWindow {
     visualEffectState: 'active',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      webviewTag: true
     }
   })
 
@@ -98,7 +99,8 @@ export function createSettingsWindow(): BrowserWindow {
     visualEffectState: 'active',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: false,
+      webviewTag: true
     }
   })
 

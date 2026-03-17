@@ -7,7 +7,18 @@ const api = {
   getClipItems: (limit?: number, offset?: number): Promise<ClipItem[]> =>
     ipcRenderer.invoke('db:getClipItems', limit, offset),
   getClipItem: (id: string): Promise<ClipItem | null> => ipcRenderer.invoke('db:getClipItem', id),
+  updateClipItemTitle: (id: string, title: string | null): Promise<void> =>
+    ipcRenderer.invoke('db:updateClipItemTitle', id, title),
+  updateClipItemText: (id: string, text: string): Promise<void> =>
+    ipcRenderer.invoke('db:updateClipItemText', id, text),
+  updateClipItemColor: (id: string, color: string): Promise<void> =>
+    ipcRenderer.invoke('db:updateClipItemColor', id, color),
+  updateClipItemImage: (
+    id: string,
+    payload: { contentBase64: string; thumbnailBase64?: string | null }
+  ): Promise<void> => ipcRenderer.invoke('db:updateClipItemImage', id, payload),
   deleteClipItem: (id: string): Promise<void> => ipcRenderer.invoke('db:deleteClipItem', id),
+  deleteClipItems: (ids: string[]): Promise<void> => ipcRenderer.invoke('db:deleteClipItems', ids),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('db:clearHistory'),
   searchClipItems: (filters: SearchFilters): Promise<ClipItem[]> =>
     ipcRenderer.invoke('db:searchClipItems', filters),
@@ -43,6 +54,8 @@ const api = {
     ipcRenderer.invoke('db:getPinboardItems', pinboardId),
   addItemToPinboard: (pinboardId: string, itemId: string): Promise<void> =>
     ipcRenderer.invoke('db:addItemToPinboard', pinboardId, itemId),
+  addItemsToPinboard: (pinboardId: string, itemIds: string[]): Promise<void> =>
+    ipcRenderer.invoke('db:addItemsToPinboard', pinboardId, itemIds),
   removeItemFromPinboard: (pinboardId: string, itemId: string): Promise<void> =>
     ipcRenderer.invoke('db:removeItemFromPinboard', pinboardId, itemId),
   reorderPinboardItems: (pinboardId: string, itemIds: string[]): Promise<void> =>

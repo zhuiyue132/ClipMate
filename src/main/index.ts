@@ -13,6 +13,7 @@ import {
 } from './clipboard'
 import { getFrontmostAppInfo } from './system/frontmostApp'
 import { startOcrWorker, stopOcrWorker } from './ocr'
+import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 
 let tray: Tray | null = null
 
@@ -123,6 +124,7 @@ app.whenReady().then(() => {
   // 启动剪贴板监听
   startClipboardWatcher()
   startOcrWorker()
+  startLinkMetaWorker()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -135,6 +137,7 @@ app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopClipboardWatcher()
   stopOcrWorker()
+  stopLinkMetaWorker()
   closeDatabase()
 })
 
