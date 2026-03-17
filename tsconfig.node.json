@@ -1,0 +1,12 @@
+{
+  "files": ["src/main/**/*.ts", "src/preload/**/*.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "./out",
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"]
+    }
+  },
+  "extends": "@electron-toolkit/tsconfig/tsconfig.node.json"
+}

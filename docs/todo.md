@@ -1,18 +1,19 @@
 # ClipMate - Todo List
+
 > Mac 剪贴板管理工具 | Electron + Vue3 + Vite
 
 ---
 
 ## 🏗️ Phase 0 · 项目初始化
 
-- [ ] 初始化 Electron + Vue3 + Vite 项目结构
-- [ ] 配置 electron-builder 打包配置（macOS .dmg / .app）
-- [ ] 配置 Vite 多进程构建（main / preload / renderer）
-- [ ] 配置 IPC 通信层（main ↔ renderer）
-- [ ] 配置 SQLite 本地数据库（better-sqlite3）
-- [ ] 配置 ESLint + Prettier + Husky
-- [ ] 搭建基础窗口管理（主窗口 + 悬浮窗口）
-- [ ] 配置 macOS 系统权限申请（辅助功能 / 屏幕录制）
+- [x] 初始化 Electron + Vue3 + Vite 项目结构
+- [x] 配置 electron-builder 打包配置（macOS .dmg / .app）
+- [x] 配置 Vite 多进程构建（main / preload / renderer）
+- [x] 配置 IPC 通信层（main ↔ renderer）
+- [x] 配置 SQLite 本地数据库（better-sqlite3）
+- [x] 配置 ESLint + Prettier + Husky
+- [x] 搭建基础窗口管理（主窗口 + 悬浮窗口）
+- [x] 配置 macOS 系统权限申请（辅助功能 / 屏幕录制）
 
 ---
 
