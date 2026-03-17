@@ -15,6 +15,23 @@ export interface ClipItem {
   updated_at: number
 }
 
+export interface SearchFilters {
+  query?: string
+  types?: Array<ClipItem['type']>
+  sourceApp?: string | null
+  dateFrom?: number | null
+  dateTo?: number | null
+  pinboardId?: string | null
+  limit?: number
+  offset?: number
+}
+
+export interface SourceAppSummary {
+  source_app: string
+  source_app_name: string
+  count: number
+}
+
 export interface Pinboard {
   id: string
   name: string
@@ -35,6 +52,8 @@ export interface IpcApi {
   getClipItem: (id: string) => Promise<ClipItem | null>
   deleteClipItem: (id: string) => Promise<void>
   clearHistory: () => Promise<void>
+  searchClipItems: (filters: SearchFilters) => Promise<ClipItem[]>
+  getSourceApps: () => Promise<SourceAppSummary[]>
 
   // Clipboard
   getClipboardState: () => Promise<{ paused: boolean }>

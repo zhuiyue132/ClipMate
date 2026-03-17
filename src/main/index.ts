@@ -12,6 +12,7 @@ import {
   stopClipboardWatcher
 } from './clipboard'
 import { getFrontmostAppInfo } from './system/frontmostApp'
+import { startOcrWorker, stopOcrWorker } from './ocr'
 
 let tray: Tray | null = null
 
@@ -121,6 +122,7 @@ app.whenReady().then(() => {
 
   // 启动剪贴板监听
   startClipboardWatcher()
+  startOcrWorker()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -132,6 +134,7 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   globalShortcut.unregisterAll()
   stopClipboardWatcher()
+  stopOcrWorker()
   closeDatabase()
 })
 

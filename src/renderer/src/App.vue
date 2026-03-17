@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ClipItem, Pinboard } from '../../shared/types'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import type { ClipItem, Pinboard, SearchFilters, SourceAppSummary } from '../../shared/types'
 
 type ContextKind = 'clip' | 'pinboard'
 type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'delete' | 'removeFromPinboard'
@@ -16,6 +16,19 @@ const loading = ref(false)
 
 const search = ref('')
 const moreOpen = ref(false)
+const filtersOpen = ref(false)
+
+type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
+const typeChip = ref<TypeChip>('all')
+const sourceApps = ref<SourceAppSummary[]>([])
+const sourceAppFilter = ref<string | null>(null)
+type DatePreset = 'all' | 'today' | 'week' | 'custom'
+const datePreset = ref<DatePreset>('all')
+const customFrom = ref('')
+const customTo = ref('')
+
+const searchResults = ref<ClipItem[] | null>(null)
+const searching = ref(false)
 
 const ctxOpen = ref(false)
 const ctxX = ref(0)
@@ -33,10 +46,22 @@ const activePinboard = computed(() => {
   return pinboards.value.find((p) => p.id === activePinboardId.value) ?? null
 })
 
-const displayItems = computed(() =>
-  showingHistory.value ? historyItems.value : pinboardItems.value
-)
-const hasItems = computed(() => displayItems.value.length > 0)
+const isSearchActive = computed(() => {
+  const q = search.value.trim()
+  return (
+    q.length > 0 ||
+    typeChip.value !== 'all' ||
+    sourceAppFilter.value !== null ||
+    datePreset.value !== 'all'
+  )
+})
+
+const visibleItems = computed(() => {
+  if (isSearchActive.value) return searchResults.value ?? []
+  return showingHistory.value ? historyItems.value : pinboardItems.value
+})
+
+const hasItems = computed(() => visibleItems.value.length > 0)
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts
@@ -83,6 +108,39 @@ function previewText(item: ClipItem): string {
   return (item.plain_text || item.content || '').slice(0, 80)
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
+function highlight(text: string): string {
+  const q = search.value.trim()
+  if (!q) return escapeHtml(text)
+
+  const source = text ?? ''
+  const lower = source.toLowerCase()
+  const needle = q.toLowerCase()
+  if (!needle) return escapeHtml(source)
+
+  let out = ''
+  let i = 0
+  while (i < source.length) {
+    const idx = lower.indexOf(needle, i)
+    if (idx === -1) {
+      out += escapeHtml(source.slice(i))
+      break
+    }
+    out += escapeHtml(source.slice(i, idx))
+    out += `<mark>${escapeHtml(source.slice(idx, idx + q.length))}</mark>`
+    i = idx + q.length
+  }
+  return out
+}
+
 function imageSrc(item: ClipItem): string | null {
   if (item.type !== 'image') return null
   return `data:image/png;base64,${item.content}`
@@ -101,6 +159,10 @@ async function refreshPinboards(): Promise<void> {
   pinboards.value = await window.api.getPinboards()
 }
 
+async function refreshSourceApps(): Promise<void> {
+  sourceApps.value = await window.api.getSourceApps()
+}
+
 async function refreshPinboardItems(pinboardId: string): Promise<void> {
   loading.value = true
   try {
@@ -110,13 +172,105 @@ async function refreshPinboardItems(pinboardId: string): Promise<void> {
   }
 }
 
-async function refreshCurrentView(): Promise<void> {
-  if (showingHistory.value) {
-    await refreshHistoryItems()
-    return
-  }
+async function refreshAfterMutation(): Promise<void> {
+  await Promise.all([refreshSourceApps(), refreshHistoryItems()])
   if (activePinboardId.value) {
     await refreshPinboardItems(activePinboardId.value)
+  }
+  if (isSearchActive.value) {
+    await runSearch()
+  }
+}
+
+function startOfDayTs(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
+}
+
+function endOfDayTs(date: Date): number {
+  return startOfDayTs(date) + 24 * 60 * 60 * 1000 - 1
+}
+
+function getWeekStartTs(date: Date): number {
+  const day = date.getDay() // 0..6 (Sun..Sat)
+  const diff = day === 0 ? 6 : day - 1 // Monday as start
+  const d = new Date(date)
+  d.setDate(date.getDate() - diff)
+  d.setHours(0, 0, 0, 0)
+  return d.getTime()
+}
+
+function typesForChip(chip: TypeChip): Array<ClipItem['type']> {
+  if (chip === 'all') return []
+  if (chip === 'text') return ['text', 'richtext']
+  if (chip === 'image') return ['image']
+  if (chip === 'link') return ['link']
+  if (chip === 'file') return ['file']
+  if (chip === 'color') return ['color']
+  return []
+}
+
+function buildSearchFilters(): SearchFilters {
+  const now = new Date()
+  let dateFrom: number | null = null
+  let dateTo: number | null = null
+
+  if (datePreset.value === 'today') {
+    dateFrom = startOfDayTs(now)
+    dateTo = Date.now()
+  }
+
+  if (datePreset.value === 'week') {
+    dateFrom = getWeekStartTs(now)
+    dateTo = Date.now()
+  }
+
+  if (datePreset.value === 'custom') {
+    if (customFrom.value) {
+      const d = new Date(customFrom.value)
+      dateFrom = startOfDayTs(d)
+    }
+    if (customTo.value) {
+      const d = new Date(customTo.value)
+      dateTo = endOfDayTs(d)
+    }
+  }
+
+  return {
+    query: search.value.trim(),
+    types: typesForChip(typeChip.value),
+    sourceApp: sourceAppFilter.value,
+    dateFrom,
+    dateTo,
+    pinboardId: activePinboardId.value,
+    limit: 200,
+    offset: 0
+  }
+}
+
+let searchSeq = 0
+let searchTimer: number | null = null
+
+function scheduleSearch(): void {
+  if (searchTimer) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    void runSearch()
+  }, 180)
+}
+
+async function runSearch(): Promise<void> {
+  if (!isSearchActive.value) {
+    searchResults.value = null
+    return
+  }
+
+  const seq = ++searchSeq
+  searching.value = true
+  try {
+    const results = await window.api.searchClipItems(buildSearchFilters())
+    if (seq !== searchSeq) return
+    searchResults.value = results
+  } finally {
+    if (seq === searchSeq) searching.value = false
   }
 }
 
@@ -127,6 +281,7 @@ async function refreshState(): Promise<void> {
 
 function closeAllMenus(): void {
   moreOpen.value = false
+  filtersOpen.value = false
   ctxOpen.value = false
   ctxKind.value = null
   ctxItem.value = null
@@ -177,11 +332,11 @@ async function runClipAction(action: ClipMenuAction): Promise<void> {
   }
   if (action === 'removeFromPinboard' && activePinboardId.value) {
     await window.api.removeItemFromPinboard(activePinboardId.value, item.id)
-    await Promise.all([refreshHistoryItems(), refreshPinboardItems(activePinboardId.value)])
+    await refreshAfterMutation()
   }
   if (action === 'delete') {
     await window.api.deleteClipItem(item.id)
-    await refreshCurrentView()
+    await refreshAfterMutation()
   }
 
   closeAllMenus()
@@ -218,7 +373,7 @@ async function togglePaused(): Promise<void> {
 
 async function clearHistory(): Promise<void> {
   await window.api.clearHistory()
-  await refreshHistoryItems()
+  await refreshAfterMutation()
   closeAllMenus()
 }
 
@@ -251,17 +406,14 @@ async function createPinboard(): Promise<void> {
 async function addToPinboard(pinboardId: string): Promise<void> {
   if (!ctxItem.value) return
   await window.api.addItemToPinboard(pinboardId, ctxItem.value.id)
-  await refreshHistoryItems()
-  if (activePinboardId.value === pinboardId) {
-    await refreshPinboardItems(pinboardId)
-  }
+  await refreshAfterMutation()
   closeAllMenus()
 }
 
 async function removeFromActivePinboard(item: ClipItem): Promise<void> {
   if (!activePinboardId.value) return
   await window.api.removeItemFromPinboard(activePinboardId.value, item.id)
-  await Promise.all([refreshHistoryItems(), refreshPinboardItems(activePinboardId.value)])
+  await refreshAfterMutation()
 }
 
 function onPinDragStart(ev: DragEvent, itemId: string): void {
@@ -274,6 +426,7 @@ function onPinDragStart(ev: DragEvent, itemId: string): void {
 
 async function onPinDrop(targetId: string): Promise<void> {
   if (!activePinboardId.value) return
+  if (isSearchActive.value) return
   const fromId = draggingId.value
   draggingId.value = null
   if (!fromId || fromId === targetId) return
@@ -296,6 +449,13 @@ async function onPinDrop(targetId: string): Promise<void> {
 let unsubItems: (() => void) | null = null
 let unsubState: (() => void) | null = null
 
+watch(
+  [search, typeChip, sourceAppFilter, datePreset, customFrom, customTo, activePinboardId],
+  () => {
+    scheduleSearch()
+  }
+)
+
 function onWindowContextMenu(e: MouseEvent): void {
   if (
     !(e.target as HTMLElement | null)?.closest?.('.card') &&
@@ -306,10 +466,16 @@ function onWindowContextMenu(e: MouseEvent): void {
 }
 
 onMounted(async () => {
-  await Promise.all([refreshState(), refreshPinboards(), refreshHistoryItems()])
+  await Promise.all([
+    refreshState(),
+    refreshPinboards(),
+    refreshSourceApps(),
+    refreshHistoryItems()
+  ])
   unsubItems = window.api.onClipItemsChanged(async () => {
-    await refreshHistoryItems()
+    await Promise.all([refreshSourceApps(), refreshHistoryItems()])
     if (activePinboardId.value) await refreshPinboardItems(activePinboardId.value)
+    if (isSearchActive.value) await runSearch()
   })
   unsubState = window.api.onClipStateChanged((state) => {
     paused.value = state.paused
@@ -331,13 +497,7 @@ onBeforeUnmount(() => {
   <div class="app">
     <header class="app-header">
       <div class="search-box">
-        <input
-          v-model="search"
-          type="text"
-          placeholder="搜索剪贴板..."
-          class="search-input"
-          disabled
-        />
+        <input v-model="search" type="text" placeholder="搜索剪贴板..." class="search-input" />
       </div>
       <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">···</button>
 
@@ -384,13 +544,128 @@ onBeforeUnmount(() => {
         </aside>
 
         <section class="main-panel">
+          <div class="filters" @click.stop>
+            <div class="chips">
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'all' }"
+                @click="typeChip = 'all'"
+              >
+                全部
+              </button>
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'text' }"
+                @click="typeChip = 'text'"
+              >
+                文本
+              </button>
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'image' }"
+                @click="typeChip = 'image'"
+              >
+                图片
+              </button>
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'link' }"
+                @click="typeChip = 'link'"
+              >
+                链接
+              </button>
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'file' }"
+                @click="typeChip = 'file'"
+              >
+                文件
+              </button>
+              <button
+                class="chip"
+                :class="{ active: typeChip === 'color' }"
+                @click="typeChip = 'color'"
+              >
+                颜色
+              </button>
+            </div>
+
+            <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
+              {{ searching ? '搜索中…' : '筛选' }}
+            </button>
+
+            <div v-if="filtersOpen" class="filter-popover" @click.stop>
+              <div class="filter-group">
+                <div class="filter-label">来源应用</div>
+                <select v-model="sourceAppFilter" class="filter-select">
+                  <option :value="null">全部应用</option>
+                  <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
+                    {{ app.source_app_name || app.source_app }} · {{ app.count }}
+                  </option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <div class="filter-label">日期范围</div>
+                <div class="preset-row">
+                  <button
+                    class="preset"
+                    :class="{ active: datePreset === 'all' }"
+                    @click="datePreset = 'all'"
+                  >
+                    不限
+                  </button>
+                  <button
+                    class="preset"
+                    :class="{ active: datePreset === 'today' }"
+                    @click="datePreset = 'today'"
+                  >
+                    今天
+                  </button>
+                  <button
+                    class="preset"
+                    :class="{ active: datePreset === 'week' }"
+                    @click="datePreset = 'week'"
+                  >
+                    本周
+                  </button>
+                  <button
+                    class="preset"
+                    :class="{ active: datePreset === 'custom' }"
+                    @click="datePreset = 'custom'"
+                  >
+                    自定义
+                  </button>
+                </div>
+
+                <div v-if="datePreset === 'custom'" class="custom-row">
+                  <input v-model="customFrom" type="date" class="date-input" />
+                  <span class="date-sep">–</span>
+                  <input v-model="customTo" type="date" class="date-input" />
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
           <div v-if="!hasItems && !loading" class="empty-state">
-            <p>{{ showingHistory ? 'ClipMate 已就绪' : 'Pinboard 为空' }}</p>
+            <p>
+              {{
+                isSearchActive
+                  ? '没有匹配结果'
+                  : showingHistory
+                    ? 'ClipMate 已就绪'
+                    : 'Pinboard 为空'
+              }}
+            </p>
             <p class="empty-hint">
               {{
-                showingHistory ? '复制内容后将自动显示在这里' : '在历史记录中右键 → 固定到 Pinboard'
+                isSearchActive
+                  ? '试试更换关键词或筛选条件'
+                  : showingHistory
+                    ? '复制内容后将自动显示在这里'
+                    : '在历史记录中右键 → 固定到 Pinboard'
               }}
             </p>
           </div>
@@ -398,7 +673,7 @@ onBeforeUnmount(() => {
           <template v-else>
             <div v-if="showingHistory" class="cards">
               <div
-                v-for="item in historyItems"
+                v-for="item in visibleItems"
                 :key="item.id"
                 class="card"
                 @click="onCardClick(item)"
@@ -420,7 +695,8 @@ onBeforeUnmount(() => {
                     </div>
                   </template>
                   <template v-else>
-                    <div class="text-preview">{{ previewText(item) }}</div>
+                    <!-- eslint-disable-next-line vue/no-v-html -->
+                    <div class="text-preview" v-html="highlight(previewText(item))"></div>
                   </template>
                 </div>
 
@@ -439,15 +715,15 @@ onBeforeUnmount(() => {
             <div v-else class="pinboard-view">
               <div class="pinboard-head">
                 <div class="pinboard-name">{{ activePinboard?.name || 'Pinboard' }}</div>
-                <div class="pinboard-count">{{ pinboardItems.length }} 项</div>
+                <div class="pinboard-count">{{ visibleItems.length }} 项</div>
               </div>
 
               <div class="pin-items">
                 <div
-                  v-for="(item, index) in pinboardItems"
+                  v-for="(item, index) in visibleItems"
                   :key="item.id"
                   class="pin-row"
-                  draggable="true"
+                  :draggable="!isSearchActive"
                   @dragstart="onPinDragStart($event, item.id)"
                   @dragover.prevent
                   @drop.prevent="onPinDrop(item.id)"
@@ -455,7 +731,8 @@ onBeforeUnmount(() => {
                   @contextmenu="openClipContextMenu($event, item)"
                 >
                   <div class="pin-index">{{ index + 1 }}</div>
-                  <div class="pin-title">{{ previewText(item) }}</div>
+                  <!-- eslint-disable-next-line vue/no-v-html -->
+                  <div class="pin-title" v-html="highlight(previewText(item))"></div>
                   <button
                     class="pin-remove"
                     title="移除"
@@ -779,6 +1056,146 @@ body {
   min-height: 0;
 }
 
+.filters {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: auto;
+  padding-bottom: 2px;
+}
+
+.chip {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.chip:hover {
+  background: var(--bg-card);
+}
+
+.chip.active {
+  background: rgba(0, 122, 255, 0.18);
+  border-color: rgba(0, 122, 255, 0.28);
+  color: var(--text-primary);
+}
+
+.filter-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-btn:hover {
+  background: var(--bg-card);
+}
+
+.filter-popover {
+  position: absolute;
+  right: 0;
+  top: 36px;
+  width: 320px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 10px;
+  z-index: 40;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+}
+
+.filter-group + .filter-group {
+  margin-top: 10px;
+}
+
+.filter-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.filter-select {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+}
+
+.preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.preset {
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.preset.active {
+  background: rgba(0, 122, 255, 0.18);
+  border-color: rgba(0, 122, 255, 0.28);
+  color: var(--text-primary);
+}
+
+.custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.date-input {
+  flex: 1;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 12px;
+  outline: none;
+}
+
+.date-sep {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
 .empty-state {
   text-align: center;
   height: 100%;
@@ -864,6 +1281,14 @@ body {
   display: -webkit-box;
   -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
+}
+
+.text-preview mark,
+.pin-title mark {
+  background: rgba(0, 122, 255, 0.22);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
 }
 
 .image-box {

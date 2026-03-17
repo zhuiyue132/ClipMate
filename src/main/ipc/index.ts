@@ -2,7 +2,7 @@ import { app, ipcMain, systemPreferences } from 'electron'
 import { getDatabase } from '../database'
 import { toggleMainWindow, createSettingsWindow, getMainWindow } from '../windows'
 import { v4 as uuidv4 } from 'uuid'
-import type { Pinboard } from '../../shared/types'
+import type { Pinboard, SearchFilters } from '../../shared/types'
 import { copyClipItem, isClipboardPaused, pasteClipItem, setClipboardPaused } from '../clipboard'
 
 export function setupIpcHandlers(): void {
@@ -40,6 +40,84 @@ export function setupIpcHandlers(): void {
   ipcMain.handle('db:clearHistory', () => {
     const db = getDatabase()
     db.exec('DELETE FROM clip_items WHERE is_pinned = 0')
+  })
+
+  ipcMain.handle('db:searchClipItems', (_event, filters: SearchFilters) => {
+    const db = getDatabase()
+    const query = (filters.query ?? '').trim()
+    const types = filters.types ?? []
+    const sourceApp = filters.sourceApp ?? null
+    const dateFrom = filters.dateFrom ?? null
+    const dateTo = filters.dateTo ?? null
+    const pinboardId = filters.pinboardId ?? null
+    const limit = Math.min(Math.max(filters.limit ?? 200, 1), 500)
+    const offset = Math.max(filters.offset ?? 0, 0)
+
+    const conditions: string[] = []
+    const params: unknown[] = []
+
+    let fromClause = 'clip_items ci'
+    if (pinboardId) {
+      fromClause = 'pinboard_items pbi JOIN clip_items ci ON ci.id = pbi.item_id'
+      conditions.push('pbi.pinboard_id = ?')
+      params.push(pinboardId)
+    }
+
+    if (query) {
+      const like = `%${query}%`
+      conditions.push('(ci.plain_text LIKE ? OR ci.title LIKE ? OR ci.ocr_text LIKE ?)')
+      params.push(like, like, like)
+    }
+
+    if (types.length > 0) {
+      conditions.push(`ci.type IN (${types.map(() => '?').join(', ')})`)
+      params.push(...types)
+    }
+
+    if (sourceApp) {
+      conditions.push('ci.source_app = ?')
+      params.push(sourceApp)
+    }
+
+    if (dateFrom !== null) {
+      conditions.push('ci.created_at >= ?')
+      params.push(dateFrom)
+    }
+
+    if (dateTo !== null) {
+      conditions.push('ci.created_at <= ?')
+      params.push(dateTo)
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
+    const orderClause = pinboardId ? 'ORDER BY pbi.sort_order ASC' : 'ORDER BY ci.created_at DESC'
+
+    const sql = `
+      SELECT ci.*
+      FROM ${fromClause}
+      ${whereClause}
+      ${orderClause}
+      LIMIT ? OFFSET ?
+    `
+
+    params.push(limit, offset)
+    return db.prepare(sql).all(...params)
+  })
+
+  ipcMain.handle('db:getSourceApps', () => {
+    const db = getDatabase()
+    const sql = `
+      SELECT
+        source_app,
+        source_app_name,
+        COUNT(1) as count
+      FROM clip_items
+      WHERE source_app IS NOT NULL
+      GROUP BY source_app, source_app_name
+      ORDER BY count DESC
+      LIMIT 80
+    `
+    return db.prepare(sql).all()
   })
 
   // ===== 剪贴板动作 =====

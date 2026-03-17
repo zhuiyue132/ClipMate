@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
-import type { ClipItem, Pinboard } from '../shared/types'
+import type { ClipItem, Pinboard, SearchFilters, SourceAppSummary } from '../shared/types'
 
 const api = {
   // 数据库操作
@@ -9,6 +9,9 @@ const api = {
   getClipItem: (id: string): Promise<ClipItem | null> => ipcRenderer.invoke('db:getClipItem', id),
   deleteClipItem: (id: string): Promise<void> => ipcRenderer.invoke('db:deleteClipItem', id),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('db:clearHistory'),
+  searchClipItems: (filters: SearchFilters): Promise<ClipItem[]> =>
+    ipcRenderer.invoke('db:searchClipItems', filters),
+  getSourceApps: (): Promise<SourceAppSummary[]> => ipcRenderer.invoke('db:getSourceApps'),
 
   // 剪贴板
   getClipboardState: (): Promise<{ paused: boolean }> => ipcRenderer.invoke('clip:getState'),
