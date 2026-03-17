@@ -48,6 +48,11 @@ export interface IpcApi {
   getPinboards: () => Promise<Pinboard[]>
   createPinboard: (name: string, color: string) => Promise<Pinboard>
   deletePinboard: (id: string) => Promise<void>
+  renamePinboard: (id: string, name: string) => Promise<void>
+  getPinboardItems: (pinboardId: string) => Promise<ClipItem[]>
+  addItemToPinboard: (pinboardId: string, itemId: string) => Promise<void>
+  removeItemFromPinboard: (pinboardId: string, itemId: string) => Promise<void>
+  reorderPinboardItems: (pinboardId: string, itemIds: string[]) => Promise<void>
 
   // Window
   hideWindow: () => void

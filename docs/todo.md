@@ -33,12 +33,12 @@
 
 ## 🗂️ Phase 2 · Pinboard（固定板）
 
-- [ ] 创建 / 重命名 / 删除 Pinboard
-- [ ] 将任意 item Pin 到指定 Pinboard
-- [ ] Pinboard 列表侧边栏展示
-- [ ] Pinboard 内 item 排序（手动拖拽排序）
-- [ ] 从 Pinboard 中移除 item
-- [ ] Pinboard 内容持久化到本地数据库
+- [x] 创建 / 重命名 / 删除 Pinboard
+- [x] 将任意 item Pin 到指定 Pinboard
+- [x] Pinboard 列表侧边栏展示
+- [x] Pinboard 内 item 排序（手动拖拽排序）
+- [x] 从 Pinboard 中移除 item
+- [x] Pinboard 内容持久化到本地数据库
 
 ---
 

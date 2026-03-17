@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { app } from 'electron'
+import { randomUUID } from 'node:crypto'
 
 let db: Database.Database | null = null
 
@@ -17,8 +18,11 @@ export function initDatabase(): Database.Database {
 
   // 开启 WAL 模式以提升并发性能
   db.pragma('journal_mode = WAL')
+  // 让外键约束生效（用于 pinboard_items 的级联删除等）
+  db.pragma('foreign_keys = ON')
 
   createTables(db)
+  seedDefaults(db)
   return db
 }
 
@@ -62,6 +66,16 @@ function createTables(db: Database.Database): void {
       FOREIGN KEY (item_id) REFERENCES clip_items(id) ON DELETE CASCADE
     );
   `)
+}
+
+function seedDefaults(db: Database.Database): void {
+  const row = db.prepare('SELECT COUNT(1) as count FROM pinboards').get() as { count: number }
+  if (row.count > 0) return
+
+  const now = Date.now()
+  db.prepare(
+    'INSERT INTO pinboards (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)'
+  ).run(randomUUID(), '收藏夹', '#007AFF', 0, now)
 }
 
 export function getDatabase(): Database.Database {

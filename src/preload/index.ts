@@ -34,6 +34,16 @@ const api = {
   createPinboard: (name: string, color: string): Promise<Pinboard> =>
     ipcRenderer.invoke('db:createPinboard', name, color),
   deletePinboard: (id: string): Promise<void> => ipcRenderer.invoke('db:deletePinboard', id),
+  renamePinboard: (id: string, name: string): Promise<void> =>
+    ipcRenderer.invoke('db:renamePinboard', id, name),
+  getPinboardItems: (pinboardId: string): Promise<ClipItem[]> =>
+    ipcRenderer.invoke('db:getPinboardItems', pinboardId),
+  addItemToPinboard: (pinboardId: string, itemId: string): Promise<void> =>
+    ipcRenderer.invoke('db:addItemToPinboard', pinboardId, itemId),
+  removeItemFromPinboard: (pinboardId: string, itemId: string): Promise<void> =>
+    ipcRenderer.invoke('db:removeItemFromPinboard', pinboardId, itemId),
+  reorderPinboardItems: (pinboardId: string, itemIds: string[]): Promise<void> =>
+    ipcRenderer.invoke('db:reorderPinboardItems', pinboardId, itemIds),
 
   // 窗口操作
   hideWindow: (): void => ipcRenderer.send('window:hide'),
