@@ -18,6 +18,22 @@ export interface NewClipItemRecord {
   updatedAt: number
 }
 
+export interface FullClipItemRecord {
+  id: string
+  type: ClipItem['type']
+  content: string
+  plainText: string | null
+  ocrText: string | null
+  sourceApp: string | null
+  sourceAppName: string | null
+  title: string | null
+  thumbnail: Buffer | null
+  linkMeta: string | null
+  isConfidential: number
+  createdAt: number
+  updatedAt: number
+}
+
 export function getClipItems(limit = 50, offset = 0): ClipItem[] {
   const db = getDatabase()
   return db
@@ -60,6 +76,24 @@ export function getLatestClipItemRecord(): Pick<
 }
 
 export function insertClipItem(record: NewClipItemRecord): void {
+  insertFullClipItem({
+    id: record.id,
+    type: record.type,
+    content: record.content,
+    plainText: record.plainText,
+    ocrText: null,
+    sourceApp: record.sourceApp,
+    sourceAppName: record.sourceAppName,
+    title: null,
+    thumbnail: record.thumbnail,
+    linkMeta: null,
+    isConfidential: 0,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt
+  })
+}
+
+export function insertFullClipItem(record: FullClipItemRecord): void {
   const db = getDatabase()
   db.prepare(
     `
@@ -71,10 +105,10 @@ export function insertClipItem(record: NewClipItemRecord): void {
         created_at, updated_at
       )
       VALUES (
-        @id, @type, @content, @plain_text, NULL,
-        @source_app, @source_app_name, NULL,
-        @thumbnail, NULL,
-        0, 0,
+        @id, @type, @content, @plain_text, @ocr_text,
+        @source_app, @source_app_name, @title,
+        @thumbnail, @link_meta,
+        0, @is_confidential,
         @created_at, @updated_at
       )
     `
@@ -83,9 +117,13 @@ export function insertClipItem(record: NewClipItemRecord): void {
     type: record.type,
     content: record.content,
     plain_text: record.plainText,
+    ocr_text: record.ocrText,
     source_app: record.sourceApp,
     source_app_name: record.sourceAppName,
+    title: record.title,
     thumbnail: record.thumbnail,
+    link_meta: record.linkMeta,
+    is_confidential: record.isConfidential,
     created_at: record.createdAt,
     updated_at: record.updatedAt
   })
@@ -114,8 +152,24 @@ export function updateClipItemText(id: string, text: string): void {
   const db = getDatabase()
   const next = text ?? ''
   db.prepare(
-    'UPDATE clip_items SET type = ?, content = ?, plain_text = ?, updated_at = ? WHERE id = ?'
+    `
+      UPDATE clip_items
+      SET type = ?, content = ?, plain_text = ?, link_meta = NULL, updated_at = ?
+      WHERE id = ?
+    `
   ).run('text', next, next, Date.now(), id)
+}
+
+export function updateClipItemLink(id: string, url: string): void {
+  const db = getDatabase()
+  const next = url.trim()
+  db.prepare(
+    `
+      UPDATE clip_items
+      SET type = ?, content = ?, plain_text = ?, link_meta = NULL, updated_at = ?
+      WHERE id = ?
+    `
+  ).run('link', next, next, Date.now(), id)
 }
 
 export function updateClipItemColor(id: string, color: string): void {
@@ -139,6 +193,15 @@ export function updateClipItemImage(id: string, payload: ClipItemImagePayload): 
   db.prepare('UPDATE clip_items SET content = ?, thumbnail = ?, updated_at = ? WHERE id = ?').run(
     payload.contentBase64,
     thumbnail,
+    Date.now(),
+    id
+  )
+}
+
+export function updateClipItemOcrText(id: string, text: string): void {
+  const db = getDatabase()
+  db.prepare('UPDATE clip_items SET ocr_text = ?, updated_at = ? WHERE id = ?').run(
+    text,
     Date.now(),
     id
   )
@@ -230,4 +293,71 @@ export function getSourceAppSummaries(): SourceAppSummary[] {
   `
 
   return db.prepare(sql).all() as SourceAppSummary[]
+}
+
+export function getClipItemsForSync(): ClipItem[] {
+  const db = getDatabase()
+  return db.prepare('SELECT * FROM clip_items ORDER BY created_at DESC').all() as ClipItem[]
+}
+
+export function upsertClipItems(items: ClipItem[]): void {
+  if (items.length === 0) return
+
+  const db = getDatabase()
+  const stmt = db.prepare(
+    `
+      INSERT INTO clip_items (
+        id, type, content, plain_text, ocr_text,
+        source_app, source_app_name, title,
+        thumbnail, link_meta,
+        is_pinned, is_confidential,
+        created_at, updated_at
+      )
+      VALUES (
+        @id, @type, @content, @plain_text, @ocr_text,
+        @source_app, @source_app_name, @title,
+        @thumbnail, @link_meta,
+        @is_pinned, @is_confidential,
+        @created_at, @updated_at
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        type = excluded.type,
+        content = excluded.content,
+        plain_text = excluded.plain_text,
+        ocr_text = excluded.ocr_text,
+        source_app = excluded.source_app,
+        source_app_name = excluded.source_app_name,
+        title = excluded.title,
+        thumbnail = excluded.thumbnail,
+        link_meta = excluded.link_meta,
+        is_pinned = excluded.is_pinned,
+        is_confidential = excluded.is_confidential,
+        created_at = excluded.created_at,
+        updated_at = excluded.updated_at
+      WHERE excluded.updated_at >= clip_items.updated_at
+    `
+  )
+
+  const tx = db.transaction((rows: ClipItem[]) => {
+    for (const row of rows) {
+      stmt.run({
+        id: row.id,
+        type: row.type,
+        content: row.content,
+        plain_text: row.plain_text,
+        ocr_text: row.ocr_text,
+        source_app: row.source_app,
+        source_app_name: row.source_app_name,
+        title: row.title,
+        thumbnail: row.thumbnail ? Buffer.from(row.thumbnail) : null,
+        link_meta: row.link_meta,
+        is_pinned: row.is_pinned,
+        is_confidential: row.is_confidential,
+        created_at: row.created_at,
+        updated_at: row.updated_at
+      })
+    }
+  })
+
+  tx(items)
 }

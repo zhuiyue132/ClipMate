@@ -3,6 +3,11 @@ import { getMainWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { PasteStackState } from '../../shared/types'
 import { createClipboardSignature, getClipboardSignature } from './content'
+import {
+  createDragIconFromBase64,
+  writeBase64ImageToTempFile,
+  writeFilePathsToClipboard
+} from './files'
 import { writeClipItemToClipboard } from './io'
 import { PasteStackManager } from './pasteStack'
 import { ClipboardWatcher } from './watcher'
@@ -13,9 +18,16 @@ let burstIntervalId: NodeJS.Timeout | null = null
 let burstTimeoutId: NodeJS.Timeout | null = null
 let burstResolve: (() => void) | null = null
 const pasteStack = new PasteStackManager(notifyStackChanged)
+const clipboardStateListeners = new Set<(paused: boolean) => void>()
 
 function notifyStackChanged(): void {
   getMainWindow()?.webContents.send('clip:stackChanged')
+}
+
+function activateLastTargetApp(): void {
+  if (lastActiveApp) {
+    activateApp(lastActiveApp)
+  }
 }
 
 function stopClipboardCaptureBurst(): void {
@@ -55,6 +67,10 @@ export function isClipboardPaused(): boolean {
 export function setClipboardPaused(paused: boolean): void {
   watcher?.setPaused(paused)
   getMainWindow()?.webContents.send('clip:stateChanged', { paused })
+
+  for (const listener of clipboardStateListeners) {
+    listener(paused)
+  }
 }
 
 export function captureClipboardNow(): void {
@@ -141,6 +157,10 @@ export function setPasteStackEnabled(enabled: boolean): void {
   pasteStack.setEnabled(enabled)
 }
 
+export function togglePasteStackEnabled(): void {
+  pasteStack.setEnabled(!pasteStack.getState().enabled)
+}
+
 export function clearPasteStack(): void {
   pasteStack.clear()
 }
@@ -161,9 +181,7 @@ export async function pastePasteStack(): Promise<void> {
   await pasteStack.pasteAll({
     beforeStart: () => {
       getMainWindow()?.hide()
-      if (lastActiveApp) {
-        activateApp(lastActiveApp)
-      }
+      activateLastTargetApp()
     },
     pasteEntry: async (entry) => {
       const item = getClipItemById(entry.itemId)
@@ -186,12 +204,15 @@ export function pasteClipItem(id: string, options?: { plainText?: boolean }): vo
 
   // 先隐藏面板，避免按键落在自身窗口上
   getMainWindow()?.hide()
-
-  if (lastActiveApp) {
-    activateApp(lastActiveApp)
-  }
-
+  activateLastTargetApp()
   sendCmdVKeystroke()
+}
+
+export function pasteLatestClipItem(options?: { plainText?: boolean }): void {
+  const latest = getLatestClipItemRecord()
+  if (!latest?.id) return
+
+  pasteClipItem(latest.id, options)
 }
 
 export function copyClipItem(id: string, options?: { plainText?: boolean }): void {
@@ -199,4 +220,42 @@ export function copyClipItem(id: string, options?: { plainText?: boolean }): voi
   if (!item) return
   writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
   suppressNextClipboardCapture()
+}
+
+export function pasteClipItemAsFile(id: string): void {
+  const item = getClipItemById(id)
+  if (!item || item.type !== 'image') return
+
+  const filePath = writeBase64ImageToTempFile(item.id, item.content)
+  writeFilePathsToClipboard([filePath])
+  suppressNextClipboardCapture(1500)
+
+  getMainWindow()?.hide()
+  activateLastTargetApp()
+  sendCmdVKeystroke()
+}
+
+export function startImageDrag(
+  webContents: Electron.WebContents,
+  id: string
+): { filePath: string } | null {
+  const item = getClipItemById(id)
+  if (!item || item.type !== 'image') return null
+
+  const filePath = writeBase64ImageToTempFile(item.id, item.content)
+  const icon = createDragIconFromBase64(item.content)
+
+  webContents.startDrag({
+    file: filePath,
+    icon
+  })
+
+  return { filePath }
+}
+
+export function subscribeClipboardState(listener: (paused: boolean) => void): () => void {
+  clipboardStateListeners.add(listener)
+  return () => {
+    clipboardStateListeners.delete(listener)
+  }
 }

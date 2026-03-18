@@ -1,4 +1,4 @@
-import { app, BrowserWindow, globalShortcut, Tray } from 'electron'
+import { app, BrowserWindow, Tray } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { initDatabase, closeDatabase } from './database'
 import {
@@ -12,19 +12,117 @@ import { setupIpcHandlers } from './ipc'
 import {
   captureClipboardBeforePanelShow,
   isClipboardPaused,
+  pasteLatestClipItem,
   recordLastActiveApp,
   setClipboardPaused,
   startClipboardWatcher,
-  stopClipboardWatcher
+  stopClipboardWatcher,
+  subscribeClipboardState,
+  togglePasteStackEnabled
 } from './clipboard'
+import { enforceHistoryRetention } from './history/retention'
 import { getFrontmostAppInfo } from './system/frontmostApp'
 import { startOcrWorker, stopOcrWorker } from './ocr'
 import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 import { buildPanelSnapshot } from './panelSnapshot'
-import { createTray } from './tray'
+import {
+  getShortcutRegistrationState,
+  registerGlobalShortcuts,
+  unregisterGlobalShortcuts
+} from './shortcuts'
+import {
+  createSettingsSnapshot,
+  getSettings,
+  initSettingsStore,
+  subscribeSettings
+} from './settings/store'
+import {
+  configureICloudSync,
+  getSyncState,
+  stopICloudSync,
+  subscribeSyncState
+} from './sync/icloudDrive'
+import { createTray, updateTray } from './tray'
+import {
+  configureAutoUpdater,
+  getUpdateState,
+  initAutoUpdater,
+  subscribeUpdateState
+} from './updater'
 
 let tray: Tray | null = null
 let pendingShowRequestId = 0
+
+function applyWindowContentProtection(window: BrowserWindow): void {
+  window.setContentProtection(getSettings().privacy.hideOnScreenShare)
+}
+
+function broadcastSettingsSnapshot(): void {
+  const snapshot = createSettingsSnapshot({
+    syncState: getSyncState(),
+    shortcutState: getShortcutRegistrationState(),
+    updateState: getUpdateState()
+  })
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      window.webContents.send('settings:changed', snapshot)
+    }
+  }
+}
+
+function refreshTrayUi(): void {
+  if (!tray) return
+
+  updateTray(tray, {
+    isPaused: () => isClipboardPaused(),
+    onTogglePanel: () => toggleMainWindowFromCurrentApp(),
+    onTogglePaused: (paused) => {
+      setClipboardPaused(paused)
+    },
+    onShowSettings: () => {
+      createSettingsWindow()
+    },
+    onQuit: () => {
+      app.quit()
+    }
+  })
+}
+
+function applySettingsSideEffects(): void {
+  const settings = getSettings()
+
+  registerGlobalShortcuts(settings, {
+    togglePanel: () => toggleMainWindowFromCurrentApp(),
+    quickPasteLatest: () => {
+      recordLastActiveApp(getFrontmostAppInfo())
+      pasteLatestClipItem()
+    },
+    pasteLatestPlainText: () => {
+      recordLastActiveApp(getFrontmostAppInfo())
+      pasteLatestClipItem({ plainText: true })
+    },
+    togglePasteStack: () => togglePasteStackEnabled(),
+    togglePauseCapture: () => setClipboardPaused(!isClipboardPaused())
+  })
+
+  app.setLoginItemSettings({
+    openAtLogin: settings.general.launchAtLogin
+  })
+
+  configureAutoUpdater(settings.general.updateFeedUrl)
+
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed()) {
+      applyWindowContentProtection(window)
+    }
+  }
+
+  enforceHistoryRetention(settings.storage)
+  configureICloudSync(settings.sync.enabled)
+  refreshTrayUi()
+  broadcastSettingsSnapshot()
+}
 
 async function showMainWindowFromCurrentApp(): Promise<void> {
   const requestId = ++pendingShowRequestId
@@ -72,10 +170,12 @@ app.whenReady().then(() => {
   // 开发环境优化
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
+    applyWindowContentProtection(window)
   })
 
   // 初始化数据库
   initDatabase()
+  initSettingsStore()
 
   // 注册 IPC 处理器
   setupIpcHandlers()
@@ -98,10 +198,23 @@ app.whenReady().then(() => {
     }
   })
 
-  // 注册全局快捷键 Cmd+Shift+V 呼出/隐藏
-  globalShortcut.register('CommandOrControl+Shift+V', () => {
-    toggleMainWindowFromCurrentApp()
+  subscribeClipboardState(() => {
+    refreshTrayUi()
   })
+
+  subscribeSettings(() => {
+    applySettingsSideEffects()
+  })
+
+  subscribeSyncState(() => {
+    broadcastSettingsSnapshot()
+  })
+  subscribeUpdateState(() => {
+    broadcastSettingsSnapshot()
+  })
+
+  applySettingsSideEffects()
+  initAutoUpdater()
 
   // 启动剪贴板监听
   startClipboardWatcher()
@@ -118,10 +231,11 @@ app.whenReady().then(() => {
 app.on('will-quit', () => {
   tray?.destroy()
   tray = null
-  globalShortcut.unregisterAll()
+  unregisterGlobalShortcuts()
   stopClipboardWatcher()
   stopOcrWorker()
   stopLinkMetaWorker()
+  stopICloudSync()
   closeDatabase()
 })
 

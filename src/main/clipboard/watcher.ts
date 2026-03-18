@@ -4,8 +4,20 @@ import {
   insertClipItem,
   touchClipItemTimestamps
 } from '../database/clipItems'
+import { enforceHistoryRetention } from '../history/retention'
+import { getSettings } from '../settings/store'
 import { getFrontmostAppInfo } from '../system/frontmostApp'
-import { createClipboardSignature, readClipboardContent } from './content'
+import {
+  createClipboardSignature,
+  hasConcealedClipboardMarker,
+  readClipboardContent
+} from './content'
+
+function isExcludedApp(bundleId: string | null): boolean {
+  if (!bundleId) return false
+  const excludedApps = getSettings().privacy.excludedApps
+  return excludedApps.some((item) => item.bundleId === bundleId)
+}
 
 export class ClipboardWatcher {
   private intervalId: NodeJS.Timeout | null = null
@@ -101,6 +113,15 @@ export class ClipboardWatcher {
 
     const now = Date.now()
     const appInfo = getFrontmostAppInfo()
+    const settings = getSettings()
+
+    if (isExcludedApp(appInfo.bundleId)) {
+      return
+    }
+
+    if (settings.privacy.ignoreConcealed && hasConcealedClipboardMarker()) {
+      return
+    }
 
     if (this.lastSaved?.signature === sig) {
       touchClipItemTimestamps(this.lastSaved.id, now)
@@ -120,6 +141,7 @@ export class ClipboardWatcher {
       createdAt: now,
       updatedAt: now
     })
+    enforceHistoryRetention(settings.storage)
 
     this.lastSaved = { id, signature: sig }
     this.onItemsChanged({ id, isDuplicate: false })

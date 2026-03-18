@@ -57,6 +57,43 @@ async function fetchHtml(url: string): Promise<string> {
   }
 }
 
+async function fetchAndStoreLinkMeta(id: string, url: string): Promise<void> {
+  const db = getDatabase()
+
+  let meta: { title?: string; description?: string; image?: string } = {}
+  try {
+    const html = await fetchHtml(url)
+    const title = extractTitle(html)
+    const description = extractDescription(html)
+    const image = extractImage(html)
+    meta = {
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(image ? { image } : {})
+    }
+  } catch {
+    meta = {}
+  }
+
+  db.prepare('UPDATE clip_items SET link_meta = ?, updated_at = ? WHERE id = ?').run(
+    JSON.stringify(meta),
+    Date.now(),
+    id
+  )
+
+  getMainWindow()?.webContents.send('clip:itemsChanged')
+}
+
+export async function refreshLinkMetaForItem(id: string): Promise<void> {
+  const db = getDatabase()
+  const row = db
+    .prepare('SELECT id, content FROM clip_items WHERE id = ? AND type = ?')
+    .get(id, 'link') as { id: string; content: string } | undefined
+
+  if (!row) return
+  await fetchAndStoreLinkMeta(row.id, row.content)
+}
+
 async function tickOnce(): Promise<void> {
   if (running) return
   running = true
@@ -77,28 +114,7 @@ async function tickOnce(): Promise<void> {
 
     if (!row) return
 
-    let meta: { title?: string; description?: string; image?: string } = {}
-    try {
-      const html = await fetchHtml(row.content)
-      const title = extractTitle(html)
-      const description = extractDescription(html)
-      const image = extractImage(html)
-      meta = {
-        ...(title ? { title } : {}),
-        ...(description ? { description } : {}),
-        ...(image ? { image } : {})
-      }
-    } catch {
-      meta = {}
-    }
-
-    db.prepare('UPDATE clip_items SET link_meta = ?, updated_at = ? WHERE id = ?').run(
-      JSON.stringify(meta),
-      Date.now(),
-      row.id
-    )
-
-    getMainWindow()?.webContents.send('clip:itemsChanged')
+    await fetchAndStoreLinkMeta(row.id, row.content)
   } finally {
     running = false
   }

@@ -1,16 +1,20 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import SettingsView from './SettingsView.vue'
 import type {
+  AppSettings,
   AppIconTarget,
   ClipItem,
   PanelSnapshot,
   PasteStackEntry,
   PasteStackState,
   SearchFilters,
-  SourceAppSummary
+  SettingsSnapshot,
+  SourceAppSummary,
+  ThemePreference
 } from '../../shared/types'
 
-type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'delete'
+type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'pasteFile' | 'delete'
 type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 type DatePreset = 'all' | 'today' | 'week' | 'custom'
 const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
@@ -22,6 +26,10 @@ const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
   { value: 'color', label: '颜色' }
 ]
 const HEADER_CONTROL_COUNT = TYPE_OPTIONS.length + 1
+
+const routeHash = ref(window.location.hash || '#/')
+const isSettingsRoute = computed(() => routeHash.value.startsWith('#/settings'))
+const appSettings = ref<AppSettings | null>(null)
 
 const historyItems = ref<ClipItem[]>([])
 const paused = ref(false)
@@ -53,9 +61,15 @@ const previewItem = ref<ClipItem | null>(null)
 const previewLoading = ref(false)
 const editMode = ref(false)
 const editText = ref('')
+const linkEditMode = ref(false)
+const linkDraft = ref('')
 const renameOpen = ref(false)
 const renameDraft = ref('')
 const colorDraft = ref('#007AFF')
+const createOpen = ref(false)
+const createType = ref<'text' | 'link'>('text')
+const createTitle = ref('')
+const createContent = ref('')
 
 const panelMode = ref<'main' | 'stack'>('main')
 const pasteStackState = ref<PasteStackState>({ enabled: false, entries: [] })
@@ -79,9 +93,66 @@ const appIcons = ref<Record<string, string | null>>({})
 const appIconFailures = ref<Record<string, true>>({})
 const resolvedSearchKey = ref<string | null>(null)
 const cardRefs = new Map<string, HTMLElement>()
+const cardsViewportWidth = ref(0)
+const cardsViewportScrollLeft = ref(0)
+
+const CARD_WIDTH = 236
+const CARD_GAP = 14
+const CARD_STRIDE = CARD_WIDTH + CARD_GAP
+const CARD_OVERSCAN = 3
 
 const trimmedSearch = computed(() => search.value.trim())
 const hasRemoteSearchQuery = computed(() => trimmedSearch.value.length > 0)
+
+function applyTheme(theme: ThemePreference): void {
+  const root = document.documentElement
+  if (theme === 'system') {
+    delete root.dataset.theme
+    return
+  }
+
+  root.dataset.theme = theme
+}
+
+function onHashChange(): void {
+  routeHash.value = window.location.hash || '#/'
+}
+
+function normalizeShortcutKey(key: string): string {
+  const lower = key.toLowerCase()
+
+  if (lower === ' ') return 'space'
+  if (lower === 'esc') return 'escape'
+  if (lower === 'return') return 'enter'
+  if (lower === 'cmd' || lower === 'command' || lower === 'meta') return 'meta'
+  if (lower === 'ctrl' || lower === 'control') return 'control'
+  if (lower === 'option') return 'alt'
+  return lower
+}
+
+function matchesAccelerator(event: KeyboardEvent, accelerator: string): boolean {
+  const tokens = accelerator
+    .split('+')
+    .map((token) => normalizeShortcutKey(token.trim()))
+    .filter(Boolean)
+
+  if (tokens.length === 0) return false
+
+  const keyToken = tokens.at(-1) ?? ''
+  const wantsMeta = tokens.includes('commandorcontrol')
+    ? navigator.platform.toLowerCase().includes('mac')
+    : tokens.includes('meta') || tokens.includes('command')
+  const wantsCtrl = tokens.includes('commandorcontrol')
+    ? !navigator.platform.toLowerCase().includes('mac')
+    : tokens.includes('control')
+
+  if (Boolean(event.shiftKey) !== tokens.includes('shift')) return false
+  if (Boolean(event.altKey) !== tokens.includes('alt')) return false
+  if (Boolean(event.metaKey) !== wantsMeta) return false
+  if (Boolean(event.ctrlKey) !== wantsCtrl) return false
+
+  return normalizeShortcutKey(event.key) === keyToken
+}
 
 function activeSearchKey(): string {
   return JSON.stringify({
@@ -134,6 +205,26 @@ const hasItems = computed(() => {
   }
   return visibleItems.value.length > 0
 })
+
+const virtualStartIndex = computed(() => {
+  if (panelMode.value !== 'main') return 0
+  const start = Math.floor(cardsViewportScrollLeft.value / CARD_STRIDE) - CARD_OVERSCAN
+  return Math.max(0, start)
+})
+
+const virtualEndIndex = computed(() => {
+  if (panelMode.value !== 'main') return visibleItems.value.length
+  const visibleCount = Math.ceil(cardsViewportWidth.value / CARD_STRIDE) + CARD_OVERSCAN * 2
+  return Math.min(visibleItems.value.length, virtualStartIndex.value + Math.max(visibleCount, 8))
+})
+
+const virtualItems = computed(() =>
+  visibleItems.value.slice(virtualStartIndex.value, virtualEndIndex.value)
+)
+
+const virtualTrackWidth = computed(() =>
+  Math.max(visibleItems.value.length * CARD_STRIDE - CARD_GAP, CARD_WIDTH)
+)
 
 const previewLinkMeta = computed(() => {
   const item = previewItem.value
@@ -297,25 +388,33 @@ function setCardRef(itemId: string, el: unknown): void {
   cardRefs.delete(itemId)
 }
 
+function updateCardsViewportMetrics(): void {
+  const container = historyCardsRef.value
+  if (!container) return
+
+  cardsViewportWidth.value = container.clientWidth
+  cardsViewportScrollLeft.value = container.scrollLeft
+}
+
+function onCardsScroll(event: Event): void {
+  const target = event.target as HTMLElement | null
+  cardsViewportScrollLeft.value = target?.scrollLeft ?? 0
+}
+
 function scrollCardIntoView(itemId: string): void {
   const container = historyCardsRef.value
   if (!container || panelMode.value !== 'main') return
 
-  const card = container.querySelector<HTMLElement>(`[data-card-id="${itemId}"]`)
-  if (!card) return
+  const index = visibleItems.value.findIndex((item) => item.id === itemId)
+  if (index < 0) return
 
-  let leftInContainer = 0
-  let el: HTMLElement | null = card
-  while (el && el !== container) {
-    leftInContainer += el.offsetLeft
-    el = el.offsetParent as HTMLElement | null
-  }
-
-  const centeredLeft = leftInContainer - (container.clientWidth - card.offsetWidth) / 2
+  const leftInContainer = index * CARD_STRIDE
+  const centeredLeft = leftInContainer - (container.clientWidth - CARD_WIDTH) / 2
   const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth)
   const nextLeft = Math.max(0, Math.min(maxScrollLeft, centeredLeft))
 
   container.scrollLeft = nextLeft
+  cardsViewportScrollLeft.value = nextLeft
 }
 
 function scheduleScrollCardIntoView(itemId: string): void {
@@ -565,6 +664,7 @@ async function refreshVisibleState(): Promise<void> {
   if (!isSearchActive.value && panelMode.value === 'main') {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+    updateCardsViewportMetrics()
   }
 }
 
@@ -589,6 +689,7 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   closeAllMenus()
   void nextTick(() => {
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+    updateCardsViewportMetrics()
   })
 }
 
@@ -874,7 +975,9 @@ async function openPreviewById(itemId: string): Promise<void> {
     previewItem.value = item
     previewOpen.value = true
     editMode.value = false
+    linkEditMode.value = false
     editText.value = item.plain_text ?? item.content ?? ''
+    linkDraft.value = item.content
     renameOpen.value = false
     renameDraft.value = item.title ?? ''
     if (item.type === 'color') {
@@ -889,6 +992,7 @@ function closePreview(): void {
   previewOpen.value = false
   previewItem.value = null
   editMode.value = false
+  linkEditMode.value = false
   renameOpen.value = false
 }
 
@@ -907,9 +1011,19 @@ async function pastePreview(plainText = false): Promise<void> {
 function toggleEdit(): void {
   if (!previewItem.value) return
   if (previewItem.value.type !== 'text' && previewItem.value.type !== 'richtext') return
+  linkEditMode.value = false
   editMode.value = !editMode.value
   if (editMode.value) {
     editText.value = previewItem.value.plain_text ?? previewItem.value.content ?? ''
+  }
+}
+
+function toggleLinkEdit(): void {
+  if (!previewItem.value || previewItem.value.type !== 'link') return
+  editMode.value = false
+  linkEditMode.value = !linkEditMode.value
+  if (linkEditMode.value) {
+    linkDraft.value = previewItem.value.content
   }
 }
 
@@ -937,6 +1051,15 @@ async function saveTextEdit(): Promise<void> {
   previewItem.value = await window.api.getClipItem(previewItem.value.id)
   editMode.value = false
   showToast('已保存文本')
+}
+
+async function saveLinkEdit(): Promise<void> {
+  if (!previewItem.value || previewItem.value.type !== 'link') return
+  await window.api.updateClipItemLink(previewItem.value.id, linkDraft.value)
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(previewItem.value.id)
+  linkEditMode.value = false
+  showToast('已更新链接')
 }
 
 async function saveColor(): Promise<void> {
@@ -994,6 +1117,73 @@ async function rotateImage(direction: 'left' | 'right'): Promise<void> {
   await refreshAfterMutation()
   previewItem.value = await window.api.getClipItem(item.id)
   showToast('已旋转图片')
+}
+
+async function extractOcr(mode: 'copy' | 'create'): Promise<void> {
+  const item = previewItem.value
+  if (!item || item.type !== 'image') return
+
+  const result = await window.api.extractImageOcr(item.id, mode)
+  if (!result.text) {
+    showToast('OCR 结果尚未就绪')
+    return
+  }
+
+  await refreshAfterMutation()
+  previewItem.value = await window.api.getClipItem(item.id)
+  showToast(mode === 'copy' ? '已复制 OCR 文字' : '已创建文本条目')
+}
+
+async function quickLook(path: string): Promise<void> {
+  await window.api.quickLookFile(path)
+}
+
+async function pasteImageAsFile(id: string): Promise<void> {
+  await window.api.pasteClipItemAsFile(id)
+  closePreview()
+}
+
+function onItemDragStart(event: DragEvent, item: ClipItem): void {
+  if (item.type !== 'image') {
+    event.preventDefault()
+    return
+  }
+
+  event.dataTransfer?.setData('text/plain', item.id)
+  window.api.startImageDrag(item.id)
+}
+
+function openCreateDialog(type: 'text' | 'link' = 'text'): void {
+  closeAllMenus()
+  createOpen.value = true
+  createType.value = type
+  createTitle.value = ''
+  createContent.value = ''
+}
+
+function closeCreateDialog(): void {
+  createOpen.value = false
+  createTitle.value = ''
+  createContent.value = ''
+}
+
+async function saveCreatedItem(): Promise<void> {
+  const content = createContent.value.trim()
+  if (!content) {
+    showToast('请输入内容')
+    return
+  }
+
+  const id = await window.api.createClipItem({
+    type: createType.value,
+    title: createTitle.value || null,
+    content
+  })
+
+  await refreshAfterMutation()
+  setActiveCard(id)
+  closeCreateDialog()
+  showToast(createType.value === 'link' ? '已创建链接条目' : '已创建文本条目')
 }
 
 async function renameFromContext(): Promise<void> {
@@ -1055,6 +1245,9 @@ async function runClipAction(action: ClipMenuAction): Promise<void> {
   if (action === 'pastePlain') {
     await window.api.pasteClipItem(item.id, { plainText: true })
   }
+  if (action === 'pasteFile' && item.type === 'image') {
+    await window.api.pasteClipItemAsFile(item.id)
+  }
   if (action === 'delete') {
     await window.api.deleteClipItem(item.id)
     await refreshAfterMutation()
@@ -1087,6 +1280,7 @@ let unsubState: (() => void) | null = null
 let unsubStack: (() => void) | null = null
 let unsubPanelPreparing: (() => void) | null = null
 let unsubPreparePanel: (() => void) | null = null
+let unsubSettings: (() => void) | null = null
 let panelPreparingTimer: number | null = null
 let currentPanelRequestId: number | null = null
 let lastAppliedPanelRequestId: number | null = null
@@ -1124,6 +1318,7 @@ watch([historyItems, typeChip], async () => {
   if (!isSearchActive.value && panelMode.value === 'main') {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+    updateCardsViewportMetrics()
   }
 })
 
@@ -1177,6 +1372,28 @@ function getPreviewCandidateId(): string | null {
 
 function onWindowKeyDown(e: KeyboardEvent): void {
   const typing = isTypingTarget(e.target)
+  const shortcuts = appSettings.value?.shortcuts
+
+  if (shortcuts?.focusSearch && matchesAccelerator(e, shortcuts.focusSearch)) {
+    e.preventDefault()
+    searchExpanded.value = true
+    focusSearchInput(true)
+    return
+  }
+
+  if (shortcuts?.newItem && matchesAccelerator(e, shortcuts.newItem)) {
+    e.preventDefault()
+    openCreateDialog('text')
+    return
+  }
+
+  if (createOpen.value) {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      closeCreateDialog()
+    }
+    return
+  }
 
   if (previewOpen.value) {
     if (e.key === 'Escape' || e.key === ' ') {
@@ -1189,6 +1406,9 @@ function onWindowKeyDown(e: KeyboardEvent): void {
       if (editMode.value) {
         e.preventDefault()
         void saveTextEdit()
+      } else if (linkEditMode.value) {
+        e.preventDefault()
+        void saveLinkEdit()
       }
       return
     }
@@ -1257,10 +1477,28 @@ function onWindowKeyDown(e: KeyboardEvent): void {
 }
 
 function onWindowFocus(): void {
+  if (isSettingsRoute.value) return
   void refreshVisibleState()
 }
 
+function onWindowResize(): void {
+  updateCardsViewportMetrics()
+}
+
 onMounted(async () => {
+  window.addEventListener('hashchange', onHashChange)
+  const settingsSnapshot = await window.api.getSettingsSnapshot()
+  appSettings.value = settingsSnapshot.settings
+  applyTheme(settingsSnapshot.settings.general.theme)
+  unsubSettings = window.api.onSettingsChanged((snapshot: SettingsSnapshot) => {
+    appSettings.value = snapshot.settings
+    applyTheme(snapshot.settings.general.theme)
+  })
+
+  if (isSettingsRoute.value) {
+    return
+  }
+
   syncTypeFocus(typeChip.value)
   unsubPanelPreparing = window.api.onPanelPreparing(async (requestId) => {
     currentPanelRequestId = requestId
@@ -1294,23 +1532,29 @@ onMounted(async () => {
   })
 
   await refreshVisibleState()
+  await nextTick()
+  updateCardsViewportMetrics()
 
   window.addEventListener('click', closeAllMenus)
   window.addEventListener('contextmenu', onWindowContextMenu)
   window.addEventListener('keydown', onWindowKeyDown)
   window.addEventListener('focus', onWindowFocus)
+  window.addEventListener('resize', onWindowResize)
 })
 
 onBeforeUnmount(() => {
+  unsubSettings?.()
   unsubPanelPreparing?.()
   unsubPreparePanel?.()
   unsubItems?.()
   unsubState?.()
   unsubStack?.()
+  window.removeEventListener('hashchange', onHashChange)
   window.removeEventListener('click', closeAllMenus)
   window.removeEventListener('contextmenu', onWindowContextMenu)
   window.removeEventListener('keydown', onWindowKeyDown)
   window.removeEventListener('focus', onWindowFocus)
+  window.removeEventListener('resize', onWindowResize)
   clearPanelPreparingTimer()
   if (activeCardScrollFrame !== null) {
     window.cancelAnimationFrame(activeCardScrollFrame)
@@ -1322,7 +1566,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="app">
+  <SettingsView v-if="isSettingsRoute" />
+  <div v-else class="app">
     <header class="app-header">
       <div class="header-placeholder" aria-hidden="true"></div>
 
@@ -1449,6 +1694,9 @@ onBeforeUnmount(() => {
           <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">···</button>
 
           <div v-if="moreOpen" class="popover" @click.stop>
+            <button class="menu-item" @click="openCreateDialog('text')">＋ 新建文本</button>
+            <button class="menu-item" @click="openCreateDialog('link')">↗ 新建链接</button>
+            <div class="menu-sep"></div>
             <button class="menu-item" @click="openSettings()">⚙ 打开设置</button>
             <button class="menu-item" @click="togglePaused()">
               {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
@@ -1541,14 +1789,18 @@ onBeforeUnmount(() => {
               </p>
             </div>
 
-            <div v-else ref="historyCardsRef" class="cards-viewport">
-              <div class="cards">
+            <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
+              <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
                 <div
-                  v-for="item in visibleItems"
+                  v-for="(item, index) in virtualItems"
                   :key="item.id"
                   :ref="(el) => setCardRef(item.id, el)"
                   class="card"
                   :data-card-id="item.id"
+                  :draggable="item.type === 'image'"
+                  :style="{
+                    transform: `translateX(${(virtualStartIndex + index) * CARD_STRIDE}px)`
+                  }"
                   :class="{
                     active: activeCardId === item.id,
                     selected: selectedSet.has(item.id)
@@ -1556,6 +1808,7 @@ onBeforeUnmount(() => {
                   @mouseenter="onItemMouseEnter(item)"
                   @mouseleave="onItemMouseLeave(item)"
                   @click="onItemClick($event, item)"
+                  @dragstart="onItemDragStart($event, item)"
                   @contextmenu="openClipContextMenu($event, item)"
                 >
                   <div class="card-top">
@@ -1610,6 +1863,13 @@ onBeforeUnmount(() => {
             <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
             <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
             <button class="menu-item" @click="runClipAction('pastePlain')">Tt 粘贴为纯文本</button>
+            <button
+              v-if="ctxItem?.type === 'image'"
+              class="menu-item"
+              @click="runClipAction('pasteFile')"
+            >
+              ⤴︎ 粘贴为文件
+            </button>
             <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
             <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
             <div class="menu-sep"></div>
@@ -1628,6 +1888,51 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </main>
+
+    <div v-if="createOpen" class="preview-overlay" @click.self="closeCreateDialog()">
+      <div class="create-window" @click.stop>
+        <div class="preview-header">
+          <div class="preview-left">
+            <div class="badge">新建条目</div>
+            <div class="preview-sub">无需先复制，可直接保存到历史记录</div>
+          </div>
+          <div class="preview-actions">
+            <button class="icon-btn" title="关闭" @click="closeCreateDialog()">✕</button>
+          </div>
+        </div>
+
+        <div class="create-body">
+          <div class="create-switch">
+            <button
+              class="preset"
+              :class="{ active: createType === 'text' }"
+              @click="createType = 'text'"
+            >
+              文本
+            </button>
+            <button
+              class="preset"
+              :class="{ active: createType === 'link' }"
+              @click="createType = 'link'"
+            >
+              链接
+            </button>
+          </div>
+
+          <input v-model="createTitle" class="rename-input" placeholder="名称（可选）" />
+          <textarea
+            v-model="createContent"
+            class="edit-area"
+            :placeholder="createType === 'link' ? 'https://example.com' : '输入文本内容...'"
+          ></textarea>
+        </div>
+
+        <div class="preview-footer">
+          <span class="hint">{{ appSettings?.shortcuts.newItem || '⌘N' }} 新建</span>
+          <button class="primary-btn" @click="saveCreatedItem()">保存条目</button>
+        </div>
+      </div>
+    </div>
 
     <div v-if="previewOpen" class="preview-overlay" @click.self="closePreview">
       <div class="preview-window" @click.stop>
@@ -1663,6 +1968,18 @@ onBeforeUnmount(() => {
               💾
             </button>
             <button
+              v-if="previewItem?.type === 'link'"
+              class="icon-btn"
+              :class="{ active: linkEditMode }"
+              title="编辑链接"
+              @click="toggleLinkEdit()"
+            >
+              🔗
+            </button>
+            <button v-if="linkEditMode" class="icon-btn" title="保存链接" @click="saveLinkEdit()">
+              💾
+            </button>
+            <button
               class="icon-btn"
               :class="{ active: renameOpen }"
               title="重命名"
@@ -1692,6 +2009,10 @@ onBeforeUnmount(() => {
             </template>
 
             <template v-else-if="previewItem.type === 'link'">
+              <div v-if="linkEditMode" class="rename-row">
+                <input v-model="linkDraft" class="rename-input" placeholder="https://example.com" />
+                <button class="primary-btn" @click="saveLinkEdit()">保存链接</button>
+              </div>
               <div v-if="previewLinkMeta" class="link-meta-card">
                 <img
                   v-if="previewLinkMeta.image"
@@ -1711,11 +2032,41 @@ onBeforeUnmount(() => {
 
             <template v-else-if="previewItem.type === 'image'">
               <div class="image-preview-lg">
-                <img :src="`data:image/png;base64,${previewItem.content}`" alt="" />
+                <img
+                  :src="`data:image/png;base64,${previewItem.content}`"
+                  alt=""
+                  draggable="true"
+                  @dragstart="onItemDragStart($event, previewItem)"
+                />
               </div>
               <div class="image-tools">
                 <button class="tool-btn" @click="rotateImage('left')">⟲</button>
                 <button class="tool-btn" @click="rotateImage('right')">⟳</button>
+                <button class="tool-btn" @click="pasteImageAsFile(previewItem.id)">文件粘贴</button>
+              </div>
+              <div class="ocr-card">
+                <div class="ocr-head">
+                  <span>OCR 识别</span>
+                  <span class="hint">{{ previewItem.ocr_text ? '已完成' : '识别中…' }}</span>
+                </div>
+                <pre v-if="previewItem.ocr_text" class="ocr-text">{{ previewItem.ocr_text }}</pre>
+                <div v-else class="ocr-empty">后台识别完成后会显示在这里</div>
+                <div class="ocr-actions">
+                  <button
+                    class="primary-btn"
+                    :disabled="!previewItem.ocr_text"
+                    @click="extractOcr('copy')"
+                  >
+                    复制文字
+                  </button>
+                  <button
+                    class="tool-btn"
+                    :disabled="!previewItem.ocr_text"
+                    @click="extractOcr('create')"
+                  >
+                    转为文本条目
+                  </button>
+                </div>
               </div>
             </template>
 
@@ -1731,7 +2082,10 @@ onBeforeUnmount(() => {
 
             <template v-else-if="previewItem.type === 'file'">
               <div class="file-list">
-                <div v-for="p in getFilePaths(previewItem)" :key="p" class="file-row">{{ p }}</div>
+                <div v-for="p in getFilePaths(previewItem)" :key="p" class="file-row">
+                  <span>{{ p }}</span>
+                  <button class="tool-btn small" @click="quickLook(p)">Quick Look</button>
+                </div>
               </div>
             </template>
           </template>
@@ -1739,7 +2093,7 @@ onBeforeUnmount(() => {
 
         <div class="preview-footer">
           <span class="hint">空格 / ESC 关闭</span>
-          <span v-if="editMode" class="hint">⌘S 保存</span>
+          <span v-if="editMode || linkEditMode" class="hint">⌘S 保存</span>
           <span class="hint">回车直接粘贴</span>
         </div>
       </div>
@@ -1789,6 +2143,26 @@ onBeforeUnmount(() => {
     --border-color: rgba(255, 255, 255, 0.12);
     --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
   }
+}
+
+:root[data-theme='light'] {
+  --bg-primary: rgba(245, 245, 247, 0.92);
+  --bg-surface: rgba(255, 255, 255, 0.85);
+  --bg-card: rgba(255, 255, 255, 0.9);
+  --text-primary: #1d1d1f;
+  --text-secondary: rgba(0, 0, 0, 0.55);
+  --border-color: rgba(0, 0, 0, 0.1);
+  --shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+}
+
+:root[data-theme='dark'] {
+  --bg-primary: rgba(20, 20, 22, 0.92);
+  --bg-surface: rgba(40, 40, 43, 0.75);
+  --bg-card: rgba(34, 34, 37, 0.92);
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.6);
+  --border-color: rgba(255, 255, 255, 0.12);
+  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
 * {
@@ -2233,18 +2607,16 @@ body {
   display: none;
 }
 
-.cards {
-  display: flex;
-  align-items: stretch;
-  gap: 14px;
-  width: max-content;
-  min-width: 100%;
+.cards-track {
+  position: relative;
+  min-height: 254px;
   padding: 0 2px 6px;
 }
 
 .card {
-  position: relative;
+  position: absolute;
   isolation: isolate;
+  top: 0;
   width: 236px;
   min-width: 236px;
   height: 248px;
@@ -2780,6 +3152,17 @@ body {
   overflow: hidden;
 }
 
+.create-window {
+  width: min(680px, calc(100vw - 24px));
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .preview-header {
   display: flex;
   align-items: center;
@@ -2847,6 +3230,18 @@ body {
   color: var(--text-secondary);
   font-size: 13px;
   padding: 10px;
+}
+
+.create-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 14px;
+}
+
+.create-switch {
+  display: flex;
+  gap: 8px;
 }
 
 .rename-row {
@@ -2973,6 +3368,7 @@ body {
   display: flex;
   gap: 10px;
   margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .tool-btn {
@@ -2987,6 +3383,52 @@ body {
 
 .tool-btn:hover {
   background: var(--bg-card);
+}
+
+.tool-btn.small {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
+.tool-btn:disabled,
+.primary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ocr-card {
+  margin-top: 14px;
+  border: 1px solid var(--border-color);
+  border-radius: 14px;
+  background: var(--bg-surface);
+  padding: 12px;
+}
+
+.ocr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ocr-text {
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.ocr-empty {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.ocr-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+  flex-wrap: wrap;
 }
 
 .color-preview-lg {
@@ -3028,12 +3470,20 @@ body {
 }
 
 .file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   font-size: 12px;
   color: var(--text-primary);
+}
+
+.file-row span {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -3,3 +3,4 @@ out
 dist
 *.node
 .DS_Store
+clipmate.db

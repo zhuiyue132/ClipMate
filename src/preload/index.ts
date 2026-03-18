@@ -1,11 +1,15 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AppSettings,
   AppIconTarget,
   ClipItem,
+  CreateClipItemInput,
   PanelSnapshot,
+  SettingsSnapshot,
   PasteStackState,
   SearchFilters,
+  SyncState,
   SourceAppSummary
 } from '../shared/types'
 
@@ -14,16 +18,25 @@ const api = {
   getClipItems: (limit?: number, offset?: number): Promise<ClipItem[]> =>
     ipcRenderer.invoke('db:getClipItems', limit, offset),
   getClipItem: (id: string): Promise<ClipItem | null> => ipcRenderer.invoke('db:getClipItem', id),
+  createClipItem: (input: CreateClipItemInput): Promise<string> =>
+    ipcRenderer.invoke('db:createClipItem', input),
   updateClipItemTitle: (id: string, title: string | null): Promise<void> =>
     ipcRenderer.invoke('db:updateClipItemTitle', id, title),
   updateClipItemText: (id: string, text: string): Promise<void> =>
     ipcRenderer.invoke('db:updateClipItemText', id, text),
+  updateClipItemLink: (id: string, url: string): Promise<void> =>
+    ipcRenderer.invoke('db:updateClipItemLink', id, url),
   updateClipItemColor: (id: string, color: string): Promise<void> =>
     ipcRenderer.invoke('db:updateClipItemColor', id, color),
   updateClipItemImage: (
     id: string,
     payload: { contentBase64: string; thumbnailBase64?: string | null }
   ): Promise<void> => ipcRenderer.invoke('db:updateClipItemImage', id, payload),
+  extractImageOcr: (
+    id: string,
+    mode: 'copy' | 'create'
+  ): Promise<{ text: string; createdItemId: string | null }> =>
+    ipcRenderer.invoke('db:extractImageOcr', id, mode),
   deleteClipItem: (id: string): Promise<void> => ipcRenderer.invoke('db:deleteClipItem', id),
   deleteClipItems: (ids: string[]): Promise<void> => ipcRenderer.invoke('db:deleteClipItems', ids),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('db:clearHistory'),
@@ -37,8 +50,11 @@ const api = {
     ipcRenderer.invoke('clip:setPaused', paused),
   pasteClipItem: (id: string, options?: { plainText?: boolean }): Promise<void> =>
     ipcRenderer.invoke('clip:pasteItem', id, options),
+  pasteClipItemAsFile: (id: string): Promise<void> =>
+    ipcRenderer.invoke('clip:pasteItemAsFile', id),
   copyClipItem: (id: string, options?: { plainText?: boolean }): Promise<void> =>
     ipcRenderer.invoke('clip:copyItem', id, options),
+  startImageDrag: (id: string): void => ipcRenderer.send('clip:startImageDrag', id),
   onClipItemsChanged: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on('clip:itemsChanged', listener)
@@ -91,7 +107,23 @@ const api = {
   requestAccessibilityPermission: (): void =>
     ipcRenderer.send('system:requestAccessibilityPermission'),
   getAppIcons: (targets: AppIconTarget[]): Promise<Record<string, string | null>> =>
-    ipcRenderer.invoke('system:getAppIcons', targets)
+    ipcRenderer.invoke('system:getAppIcons', targets),
+  quickLookFile: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke('system:quickLookFile', filePath),
+
+  // 设置与同步
+  getSettingsSnapshot: (): Promise<SettingsSnapshot> => ipcRenderer.invoke('settings:getSnapshot'),
+  updateSettings: (settings: AppSettings): Promise<AppSettings> =>
+    ipcRenderer.invoke('settings:update', settings),
+  triggerSyncNow: (): Promise<SyncState> => ipcRenderer.invoke('sync:now'),
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: (): Promise<void> => ipcRenderer.invoke('update:install'),
+  onSettingsChanged: (callback: (snapshot: SettingsSnapshot) => void): (() => void) => {
+    const listener = (_event, snapshot: SettingsSnapshot): void => callback(snapshot)
+    ipcRenderer.on('settings:changed', listener)
+    return () => ipcRenderer.removeListener('settings:changed', listener)
+  }
 }
 
 if (process.contextIsolated) {

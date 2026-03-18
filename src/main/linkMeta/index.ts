@@ -1,1 +1,1 @@
-export { startLinkMetaWorker, stopLinkMetaWorker } from './worker'
+export { refreshLinkMetaForItem, startLinkMetaWorker, stopLinkMetaWorker } from './worker'

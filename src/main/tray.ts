@@ -1,5 +1,4 @@
 import { Menu, Tray, nativeImage } from 'electron'
-import { join } from 'node:path'
 
 interface CreateTrayOptions {
   isPaused: () => boolean
@@ -9,30 +8,27 @@ interface CreateTrayOptions {
   onQuit: () => void
 }
 
-function resolveTrayIcon(): Electron.NativeImage {
-  const iconPath = join(__dirname, '../../resources/trayIcon.png')
-  const icon = nativeImage.createFromPath(iconPath)
-  if (!icon.isEmpty()) {
-    return icon.resize({ width: 18, height: 18 })
-  }
+function createTrayIcon(paused: boolean): Electron.NativeImage {
+  const svg = paused
+    ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
+         <rect x="4" y="3" width="10" height="12" rx="2" fill="black"/>
+         <rect x="6" y="6" width="2.2" height="5.6" rx="1" fill="white"/>
+         <rect x="9.8" y="6" width="2.2" height="5.6" rx="1" fill="white"/>
+       </svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
+         <rect x="4" y="4" width="9" height="10" rx="2" fill="black"/>
+         <rect x="6.2" y="2" width="9" height="10" rx="2" fill="black" opacity="0.68"/>
+       </svg>`
 
-  const fallbackIcon = nativeImage.createFromBuffer(
-    Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAaklEQVQ4T2NkoBAwUqifAacB' +
-        'DP//M0xgYGD4j00xIyMjGxMTkw4DA8N/bHIgNVADJjAwMPzBZQDIABBmBGEmHM6A0QwMDH9w' +
-        'GcDIyMgGMuA/HgNABvzBZQAjIyMbyIB/eAwYHAkJADx2RxHJnxXoAAAAAElFTkSuQmCC',
-      'base64'
-    )
+  const icon = nativeImage.createFromDataURL(
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   )
-
-  return fallbackIcon.resize({ width: 18, height: 18 })
+  icon.setTemplateImage(true)
+  return icon
 }
 
-export function createTray(options: CreateTrayOptions): Tray {
-  const tray = new Tray(resolveTrayIcon())
-  tray.setToolTip('ClipMate')
-
-  const contextMenu = Menu.buildFromTemplate([
+function buildContextMenu(options: CreateTrayOptions): Electron.Menu {
+  return Menu.buildFromTemplate([
     {
       label: '显示 ClipMate',
       click: () => {
@@ -63,8 +59,19 @@ export function createTray(options: CreateTrayOptions): Tray {
       }
     }
   ])
+}
 
-  tray.setContextMenu(contextMenu)
+export function updateTray(tray: Tray, options: CreateTrayOptions): void {
+  const paused = options.isPaused()
+  tray.setImage(createTrayIcon(paused))
+  tray.setToolTip(paused ? 'ClipMate · 已暂停收集' : 'ClipMate')
+  tray.setContextMenu(buildContextMenu(options))
+}
+
+export function createTray(options: CreateTrayOptions): Tray {
+  const tray = new Tray(createTrayIcon(options.isPaused()))
+  updateTray(tray, options)
+
   tray.on('click', () => {
     options.onTogglePanel()
   })

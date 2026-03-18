@@ -54,17 +54,119 @@ export interface PasteStackState {
   entries: PasteStackEntry[]
 }
 
+export interface ExcludedApp {
+  bundleId: string
+  name: string | null
+}
+
+export type ThemePreference = 'system' | 'light' | 'dark'
+export type ShortcutAction = keyof ShortcutSettings
+export type SyncStatus = 'disabled' | 'idle' | 'syncing' | 'error' | 'unavailable'
+export type UpdateStatus =
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'error'
+  | 'unavailable'
+
+export interface GeneralSettings {
+  launchAtLogin: boolean
+  theme: ThemePreference
+  updateFeedUrl: string | null
+}
+
+export interface StorageSettings {
+  maxItems: number | null
+  maxAgeDays: number | null
+}
+
+export interface PrivacySettings {
+  excludedApps: ExcludedApp[]
+  hideOnScreenShare: boolean
+  ignoreConcealed: boolean
+}
+
+export interface ShortcutSettings {
+  togglePanel: string
+  quickPasteLatest: string
+  pasteLatestPlainText: string
+  togglePasteStack: string
+  togglePauseCapture: string
+  focusSearch: string
+  newItem: string
+}
+
+export interface SyncSettings {
+  enabled: boolean
+}
+
+export interface AppSettings {
+  general: GeneralSettings
+  storage: StorageSettings
+  privacy: PrivacySettings
+  shortcuts: ShortcutSettings
+  sync: SyncSettings
+}
+
+export interface SyncState {
+  enabled: boolean
+  status: SyncStatus
+  lastSyncAt: number | null
+  lastError: string | null
+  path: string | null
+}
+
+export interface ShortcutRegistration {
+  scope: 'global' | 'local'
+  registered: boolean
+  accelerator: string
+}
+
+export type ShortcutRegistrationState = Record<ShortcutAction, ShortcutRegistration>
+
+export interface UpdateState {
+  status: UpdateStatus
+  currentVersion: string
+  availableVersion: string | null
+  progress: number | null
+  message: string | null
+}
+
+export interface SettingsSnapshot {
+  settings: AppSettings
+  syncState: SyncState
+  shortcutState: ShortcutRegistrationState
+  updateState: UpdateState
+  appVersion: string
+  dbPath: string
+}
+
+export interface CreateClipItemInput {
+  type: 'text' | 'link'
+  content: string
+  title?: string | null
+}
+
 export interface IpcApi {
   // Database
   getClipItems: (limit?: number, offset?: number) => Promise<ClipItem[]>
   getClipItem: (id: string) => Promise<ClipItem | null>
+  createClipItem: (input: CreateClipItemInput) => Promise<string>
   updateClipItemTitle: (id: string, title: string | null) => Promise<void>
   updateClipItemText: (id: string, text: string) => Promise<void>
+  updateClipItemLink: (id: string, url: string) => Promise<void>
   updateClipItemColor: (id: string, color: string) => Promise<void>
   updateClipItemImage: (
     id: string,
     payload: { contentBase64: string; thumbnailBase64?: string | null }
   ) => Promise<void>
+  extractImageOcr: (
+    id: string,
+    mode: 'copy' | 'create'
+  ) => Promise<{ text: string; createdItemId: string | null }>
   deleteClipItem: (id: string) => Promise<void>
   deleteClipItems: (ids: string[]) => Promise<void>
   clearHistory: () => Promise<void>
@@ -75,7 +177,9 @@ export interface IpcApi {
   getClipboardState: () => Promise<{ paused: boolean }>
   setClipboardPaused: (paused: boolean) => Promise<void>
   pasteClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
+  pasteClipItemAsFile: (id: string) => Promise<void>
   copyClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
+  startImageDrag: (id: string) => void
   onClipItemsChanged: (callback: () => void) => () => void
   onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
   onPanelPreparing: (callback: (requestId: number) => void | Promise<void>) => () => void
@@ -99,4 +203,14 @@ export interface IpcApi {
   getAccessibilityPermission: () => Promise<boolean>
   requestAccessibilityPermission: () => void
   getAppIcons: (targets: AppIconTarget[]) => Promise<Record<string, string | null>>
+  quickLookFile: (path: string) => Promise<void>
+
+  // Settings & sync
+  getSettingsSnapshot: () => Promise<SettingsSnapshot>
+  updateSettings: (settings: AppSettings) => Promise<AppSettings>
+  triggerSyncNow: () => Promise<SyncState>
+  checkForUpdates: () => Promise<UpdateState>
+  downloadUpdate: () => Promise<UpdateState>
+  installUpdate: () => Promise<void>
+  onSettingsChanged: (callback: (snapshot: SettingsSnapshot) => void) => () => void
 }

@@ -5,11 +5,15 @@ import {
   getPasteStackState,
   isClipboardPaused,
   pasteClipItem,
+  pasteClipItemAsFile,
+  pasteLatestClipItem,
   pastePasteStack,
   removePasteStackEntry,
   reorderPasteStack,
   setClipboardPaused,
-  setPasteStackEnabled
+  setPasteStackEnabled,
+  startImageDrag,
+  togglePasteStackEnabled
 } from '../clipboard'
 
 export function registerClipboardIpcHandlers(): void {
@@ -25,8 +29,16 @@ export function registerClipboardIpcHandlers(): void {
     pasteClipItem(id, options)
   })
 
+  ipcMain.handle('clip:pasteItemAsFile', (_event, id: string) => {
+    pasteClipItemAsFile(id)
+  })
+
   ipcMain.handle('clip:copyItem', (_event, id: string, options?: { plainText?: boolean }) => {
     copyClipItem(id, options)
+  })
+
+  ipcMain.handle('clip:pasteLatestItem', (_event, options?: { plainText?: boolean }) => {
+    pasteLatestClipItem(options)
   })
 
   ipcMain.handle('clip:getStackState', () => {
@@ -51,5 +63,13 @@ export function registerClipboardIpcHandlers(): void {
 
   ipcMain.handle('clip:pasteStack', async () => {
     await pastePasteStack()
+  })
+
+  ipcMain.handle('clip:toggleStackEnabled', () => {
+    togglePasteStackEnabled()
+  })
+
+  ipcMain.on('clip:startImageDrag', (event, id: string) => {
+    startImageDrag(event.sender, id)
   })
 }

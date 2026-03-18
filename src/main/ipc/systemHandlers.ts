@@ -4,6 +4,7 @@ import {
   getAppIconCacheKey,
   type AppIconTarget
 } from '../system/appIcons'
+import { quickLookFile } from '../system/quickLook'
 
 export function registerSystemIpcHandlers(): void {
   ipcMain.handle('system:getAccessibilityPermission', () => {
@@ -33,5 +34,9 @@ export function registerSystemIpcHandlers(): void {
     )
 
     return Object.fromEntries(entries)
+  })
+
+  ipcMain.handle('system:quickLookFile', async (_event, filePath: string) => {
+    await quickLookFile(filePath)
   })
 }
