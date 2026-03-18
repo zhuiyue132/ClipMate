@@ -1757,7 +1757,14 @@ onBeforeUnmount(() => {
   --border-color: rgba(0, 0, 0, 0.1);
   --shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
   --accent-color: #007aff;
+  --accent-fill: rgba(0, 122, 255, 0.1);
+  --accent-fill-strong: rgba(0, 122, 255, 0.16);
+  --accent-border: rgba(0, 122, 255, 0.24);
+  --accent-border-strong: rgba(0, 122, 255, 0.46);
   --danger-color: #ff3b30;
+  --radius-pill: 999px;
+  --radius-card: 18px;
+  --radius-card-inner: 14px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -1867,14 +1874,17 @@ body {
 }
 
 .chip {
+  position: relative;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   color: var(--text-secondary);
   padding: 7px 12px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
   transition:
     background 0.16s ease,
     border-color 0.16s ease,
@@ -1884,19 +1894,27 @@ body {
 }
 
 .chip:hover {
-  background: var(--bg-card);
-}
-
-.chip.active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.28);
+  background: color-mix(in srgb, var(--bg-card) 92%, white 8%);
+  border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent-border));
   color: var(--text-primary);
 }
 
+.chip.active {
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill-strong));
+  border-color: var(--accent-border);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.1);
+}
+
 .chip.focused {
-  transform: translateY(-1px);
-  border-color: rgba(0, 122, 255, 0.45);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+  background: color-mix(in srgb, var(--bg-card) 84%, var(--accent-fill));
+  border-color: var(--accent-border-strong);
+  color: var(--text-primary);
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
+}
+
+.chip.active.focused {
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.24);
 }
 
 .search-shell {
@@ -1906,8 +1924,9 @@ body {
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
   transition:
     width 0.2s ease,
     border-color 0.16s ease,
@@ -1917,13 +1936,19 @@ body {
 
 .search-shell.open {
   width: 224px;
-  border-color: rgba(0, 122, 255, 0.28);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--bg-card) 90%, var(--accent-fill));
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.1);
 }
 
 .search-shell.focused {
-  border-color: rgba(0, 122, 255, 0.45);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+  border-color: var(--accent-border-strong);
+  background: color-mix(in srgb, var(--bg-card) 86%, var(--accent-fill));
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
+}
+
+.search-shell.open.focused {
+  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.24);
 }
 
 .search-toggle {
@@ -1999,7 +2024,7 @@ body {
   flex: 1;
   display: flex;
   min-height: 0;
-  padding: 14px 18px 18px;
+  padding: 14px 18px 22px;
   -webkit-app-region: no-drag;
   position: relative;
 }
@@ -2035,7 +2060,7 @@ body {
 }
 
 .main-panel.with-selection-bar {
-  padding-bottom: 58px;
+  padding-bottom: 62px;
 }
 
 .filter-btn {
@@ -2197,6 +2222,7 @@ body {
   min-height: 0;
   width: 100%;
   max-width: 100%;
+  padding: 14px 14px 22px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
@@ -2210,49 +2236,123 @@ body {
 .cards {
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 14px;
   width: max-content;
   min-width: 100%;
-  padding-bottom: 8px;
+  padding: 0 2px 6px;
 }
 
 .card {
-  width: 260px;
-  min-width: 260px;
+  position: relative;
+  isolation: isolate;
+  width: 236px;
+  min-width: 236px;
   height: 248px;
   min-height: 248px;
   max-height: 248px;
-  background: var(--bg-card);
+  overflow: hidden;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-card) 96%, rgba(255, 255, 255, 0.26)) 0%,
+    var(--bg-card) 100%
+  );
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
   padding: 12px;
   display: flex;
   flex-direction: column;
   gap: 10px;
   cursor: pointer;
-  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 32%);
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+
+.card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  box-shadow: inset 0 0 0 0 transparent;
+  pointer-events: none;
+  transition:
+    opacity 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .card:hover {
-  border-color: rgba(0, 122, 255, 0.3);
+  border-color: color-mix(in srgb, var(--border-color) 90%, rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.card:hover::before {
+  opacity: 0.55;
 }
 
 .card.active {
-  border-color: rgba(0, 122, 255, 0.8);
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill-strong));
+  border-color: rgba(0, 122, 255, 0.34);
   box-shadow:
-    0 0 0 4px rgba(0, 122, 255, 0.22),
-    0 12px 24px rgba(0, 122, 255, 0.12);
-  transform: translateY(-2px);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 0 2px rgba(0, 122, 255, 0.24);
+}
+
+.card.active::before {
+  opacity: 0.72;
+}
+
+.card.active::after {
+  opacity: 0;
+  box-shadow: none;
 }
 
 .card.selected {
-  background: color-mix(in srgb, var(--bg-card) 88%, rgba(0, 122, 255, 0.12));
+  background: color-mix(in srgb, var(--bg-card) 92%, var(--accent-fill));
+  border-color: rgba(0, 122, 255, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.24),
+    0 0 0 2px rgba(0, 122, 255, 0.14);
+}
+
+.card.selected::before {
+  opacity: 0.58;
+}
+
+.card.selected::after {
+  opacity: 0;
+  box-shadow: none;
 }
 
 .card.active.selected {
+  background: color-mix(in srgb, var(--bg-card) 86%, var(--accent-fill-strong));
+  border-color: rgba(0, 122, 255, 0.4);
   box-shadow:
-    0 0 0 4px rgba(0, 122, 255, 0.26),
-    0 12px 24px rgba(0, 122, 255, 0.14);
+    inset 0 1px 0 rgba(255, 255, 255, 0.28),
+    0 0 0 2px rgba(0, 122, 255, 0.3);
+}
+
+.card.active.selected::before {
+  opacity: 0.8;
+}
+
+.card.active.selected::after {
+  opacity: 0;
+  box-shadow: none;
 }
 
 .card-top {
@@ -2266,11 +2366,15 @@ body {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   font-size: 12px;
   color: var(--text-secondary);
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
 }
 
 .card-body {
@@ -2303,7 +2407,7 @@ body {
 .image-box {
   width: 100%;
   height: 136px;
-  border-radius: 12px;
+  border-radius: var(--radius-card-inner);
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   display: flex;
@@ -2321,7 +2425,7 @@ body {
 .color-box {
   width: 100%;
   height: 136px;
-  border-radius: 12px;
+  border-radius: var(--radius-card-inner);
   border: 1px solid var(--border-color);
   display: flex;
   align-items: flex-end;
@@ -2352,7 +2456,7 @@ body {
 .app-dot {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: calc(var(--radius-card-inner) - 4px);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2360,6 +2464,22 @@ body {
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   font-weight: 700;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.card.active .badge,
+.card.selected .badge {
+  background: color-mix(in srgb, var(--bg-surface) 84%, var(--accent-fill));
+  border-color: color-mix(in srgb, var(--border-color) 72%, var(--accent-border));
+  color: var(--text-primary);
+}
+
+.card.active .app-dot,
+.card.selected .app-dot {
+  background: color-mix(in srgb, var(--bg-surface) 78%, var(--accent-fill-strong));
+  border-color: color-mix(in srgb, var(--border-color) 70%, var(--accent-border));
 }
 
 .app-icon {

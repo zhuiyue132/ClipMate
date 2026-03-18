@@ -4,7 +4,7 @@ import { is } from '@electron-toolkit/utils'
 
 let mainWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
-const MAIN_WINDOW_HEIGHT = 360
+const MAIN_WINDOW_HEIGHT = 384
 const MAIN_WINDOW_SHOW_MS = 132
 const MAIN_WINDOW_HIDE_MS = 96
 const MAIN_WINDOW_TICK_MS = 1000 / 120
