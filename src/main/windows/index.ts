@@ -4,23 +4,33 @@ import { is } from '@electron-toolkit/utils'
 
 let mainWindow: BrowserWindow | null = null
 let settingsWindow: BrowserWindow | null = null
+const MAIN_WINDOW_HEIGHT = 360
 
-export function createMainWindow(): BrowserWindow {
+function getBottomPanelBounds() {
   const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
   const { width: screenWidth, height: screenHeight } = display.workAreaSize
   const { x: screenX, y: screenY } = display.workArea
 
-  const windowWidth = screenWidth
-  const windowHeight = 320
+  return {
+    x: screenX,
+    y: screenY + screenHeight - MAIN_WINDOW_HEIGHT,
+    width: screenWidth,
+    height: MAIN_WINDOW_HEIGHT
+  }
+}
+
+export function createMainWindow(): BrowserWindow {
+  const bounds = getBottomPanelBounds()
 
   mainWindow = new BrowserWindow({
-    width: windowWidth,
-    height: windowHeight,
-    x: screenX,
-    y: screenY + screenHeight - windowHeight,
+    ...bounds,
     show: false,
     frame: false,
-    resizable: true,
+    movable: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
     alwaysOnTop: true,
     skipTaskbar: true,
     transparent: false,
@@ -66,18 +76,7 @@ export function toggleMainWindow(): void {
   if (mainWindow.isVisible()) {
     mainWindow.hide()
   } else {
-    // 更新窗口位置到当前鼠标所在屏幕底部
-    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
-    const { width: screenWidth, height: screenHeight } = display.workAreaSize
-    const { x: screenX, y: screenY } = display.workArea
-    const [, windowHeight] = mainWindow.getSize()
-
-    mainWindow.setBounds({
-      x: screenX,
-      y: screenY + screenHeight - windowHeight,
-      width: screenWidth,
-      height: windowHeight
-    })
+    mainWindow.setBounds(getBottomPanelBounds())
     mainWindow.show()
     mainWindow.focus()
   }

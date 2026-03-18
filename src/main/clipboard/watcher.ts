@@ -42,6 +42,22 @@ function signatureFor(item: Pick<ClipItem, 'type' | 'content' | 'plain_text'>): 
   return `${item.type}:${hash}`
 }
 
+export function createClipboardSignature(
+  item: Pick<ClipItem, 'type' | 'content' | 'plain_text'>
+): string {
+  return signatureFor(item)
+}
+
+export function getClipboardSignature(): string | null {
+  const content = readClipboardContent()
+  if (!content) return null
+  return signatureFor({
+    type: content.type,
+    content: content.content,
+    plain_text: content.plain_text
+  })
+}
+
 function isProbablyUrl(text: string): boolean {
   return /^https?:\/\/\S+$/i.test(text.trim())
 }
@@ -163,9 +179,10 @@ export class ClipboardWatcher {
     if (this.intervalId) return
 
     this.primeLastSaved()
+    this.poll()
 
     this.intervalId = setInterval(() => {
-      this.tick()
+      this.poll()
     }, this.pollMs)
   }
 
@@ -184,6 +201,10 @@ export class ClipboardWatcher {
     this.paused = next
   }
 
+  captureNow(): void {
+    this.poll()
+  }
+
   suppressCapture(ms: number): void {
     this.ignoreUntil = Math.max(this.ignoreUntil, Date.now() + ms)
   }
@@ -198,6 +219,14 @@ export class ClipboardWatcher {
 
     if (latest?.id) {
       this.lastSaved = { id: latest.id, signature: signatureFor(latest) }
+    }
+  }
+
+  private poll(): void {
+    try {
+      this.tick()
+    } catch (error) {
+      console.error('[clipboard] failed to capture clipboard content', error)
     }
   }
 

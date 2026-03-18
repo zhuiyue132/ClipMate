@@ -1,7 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import type {
+  AppIconTarget,
   ClipItem,
+  PanelSnapshot,
   PasteStackState,
   Pinboard,
   SearchFilters,
@@ -48,6 +50,22 @@ const api = {
     ipcRenderer.on('clip:stateChanged', listener)
     return () => ipcRenderer.removeListener('clip:stateChanged', listener)
   },
+  onPanelPreparing: (callback: (requestId: number) => void | Promise<void>): (() => void) => {
+    const listener = (_event, requestId: number): void => {
+      void callback(requestId)
+    }
+    ipcRenderer.on('window:panelPreparing', listener)
+    return () => ipcRenderer.removeListener('window:panelPreparing', listener)
+  },
+  onPreparePanelShow: (
+    callback: (requestId: number, snapshot: PanelSnapshot) => void | Promise<void>
+  ): (() => void) => {
+    const listener = (_event, requestId: number, snapshot: PanelSnapshot): void => {
+      void callback(requestId, snapshot)
+    }
+    ipcRenderer.on('window:preparePanelShow', listener)
+    return () => ipcRenderer.removeListener('window:preparePanelShow', listener)
+  },
   getPasteStackState: (): Promise<PasteStackState> => ipcRenderer.invoke('clip:getStackState'),
   setPasteStackEnabled: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('clip:setStackEnabled', enabled),
@@ -90,7 +108,9 @@ const api = {
   getAccessibilityPermission: (): Promise<boolean> =>
     ipcRenderer.invoke('system:getAccessibilityPermission'),
   requestAccessibilityPermission: (): void =>
-    ipcRenderer.send('system:requestAccessibilityPermission')
+    ipcRenderer.send('system:requestAccessibilityPermission'),
+  getAppIcons: (targets: AppIconTarget[]): Promise<Record<string, string | null>> =>
+    ipcRenderer.invoke('system:getAppIcons', targets)
 }
 
 if (process.contextIsolated) {

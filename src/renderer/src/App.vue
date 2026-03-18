@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
+  AppIconTarget,
   ClipItem,
+  PanelSnapshot,
   PasteStackEntry,
   PasteStackState,
   Pinboard,
@@ -67,6 +69,10 @@ const ctxPinboard = ref<Pinboard | null>(null)
 const pinPickerOpen = ref(false)
 
 const draggingId = ref<string | null>(null)
+const historyCardsRef = ref<HTMLElement | null>(null)
+const panelPreparing = ref(false)
+const appIcons = ref<Record<string, string | null>>({})
+const appIconFailures = ref<Record<string, true>>({})
 
 const showingHistory = computed(() => activePinboardId.value === null)
 const activePinboard = computed(() => {
@@ -159,6 +165,68 @@ function previewText(item: ClipItem): string {
   return (item.plain_text || item.content || '').slice(0, 80)
 }
 
+function appIconKey(target: AppIconTarget): string {
+  return `${target.bundleId ?? ''}|${target.name ?? ''}`
+}
+
+function appIconKeyForItem(item: ClipItem): string {
+  return appIconKey(appIconTargetForItem(item))
+}
+
+function appIconTargetForItem(item: ClipItem): AppIconTarget {
+  return {
+    bundleId: item.source_app,
+    name: item.source_app_name
+  }
+}
+
+function appIconSrc(item: ClipItem): string | null {
+  const key = appIconKeyForItem(item)
+  if (appIconFailures.value[key]) return null
+  const src = appIcons.value[key]
+  return typeof src === 'string' && src.startsWith('data:image/') ? src : null
+}
+
+function appIconInitial(item: ClipItem): string {
+  const label = (item.source_app_name || item.source_app || 'App').trim()
+  return (label.charAt(0) || 'A').toUpperCase()
+}
+
+function markAppIconFailed(item: ClipItem): void {
+  const key = appIconKeyForItem(item)
+  if (appIconFailures.value[key]) return
+  appIconFailures.value = {
+    ...appIconFailures.value,
+    [key]: true
+  }
+}
+
+async function ensureVisibleAppIcons(items: ClipItem[]): Promise<void> {
+  const missingTargets = new Map<string, AppIconTarget>()
+  for (const item of items) {
+    const target = appIconTargetForItem(item)
+    if (!target.bundleId && !target.name) continue
+    const key = appIconKeyForItem(item)
+    if (key in appIcons.value || key in appIconFailures.value) continue
+    missingTargets.set(key, target)
+  }
+
+  if (missingTargets.size === 0) return
+
+  try {
+    const result = await window.api.getAppIcons(Array.from(missingTargets.values()))
+    appIcons.value = {
+      ...appIcons.value,
+      ...result
+    }
+  } catch {
+    appIcons.value = {
+      ...appIcons.value,
+      ...Object.fromEntries(Array.from(missingTargets.keys()).map((key) => [key, null]))
+    }
+  }
+}
+
 function getFilePaths(item: ClipItem): string[] {
   if (item.type !== 'file') return []
   try {
@@ -244,6 +312,38 @@ async function refreshAfterMutation(): Promise<void> {
   if (isSearchActive.value) {
     await runSearch()
   }
+}
+
+async function refreshVisibleState(): Promise<void> {
+  await Promise.all([refreshState(), refreshPasteStack(), refreshAfterMutation()])
+  if (!isSearchActive.value && showingHistory.value) {
+    await nextTick()
+    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+  }
+}
+
+function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
+  paused.value = snapshot.paused
+  historyItems.value = snapshot.historyItems
+  sourceApps.value = snapshot.sourceApps
+  pinboards.value = snapshot.pinboards
+  pasteStackState.value = snapshot.pasteStackState
+  if (!resetUi) return
+  panelMode.value = 'main'
+  activePinboardId.value = null
+  pinboardItems.value = []
+  search.value = ''
+  typeChip.value = 'all'
+  sourceAppFilter.value = null
+  datePreset.value = 'all'
+  customFrom.value = ''
+  customTo.value = ''
+  searchResults.value = null
+  clearSelection()
+  closeAllMenus()
+  void nextTick(() => {
+    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+  })
 }
 
 async function refreshPasteStack(): Promise<void> {
@@ -840,6 +940,18 @@ async function onPinDrop(targetId: string): Promise<void> {
 let unsubItems: (() => void) | null = null
 let unsubState: (() => void) | null = null
 let unsubStack: (() => void) | null = null
+let unsubPanelPreparing: (() => void) | null = null
+let unsubPreparePanel: (() => void) | null = null
+let panelPreparingTimer: number | null = null
+let currentPanelRequestId: number | null = null
+let lastAppliedPanelRequestId: number | null = null
+
+function clearPanelPreparingTimer(): void {
+  if (panelPreparingTimer !== null) {
+    window.clearTimeout(panelPreparingTimer)
+    panelPreparingTimer = null
+  }
+}
 
 watch(
   [search, typeChip, sourceAppFilter, datePreset, customFrom, customTo, activePinboardId],
@@ -847,6 +959,21 @@ watch(
     clearSelection()
     scheduleSearch()
   }
+)
+
+watch([historyItems, typeChip, activePinboardId], async () => {
+  if (!isSearchActive.value && showingHistory.value) {
+    await nextTick()
+    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+  }
+})
+
+watch(
+  visibleItems,
+  (items) => {
+    void ensureVisibleAppIcons(items)
+  },
+  { immediate: true }
 )
 
 function onWindowContextMenu(e: MouseEvent): void {
@@ -937,18 +1064,34 @@ function onWindowKeyDown(e: KeyboardEvent): void {
   }
 }
 
+function onWindowFocus(): void {
+  void refreshVisibleState()
+}
+
 onMounted(async () => {
-  await Promise.all([
-    refreshState(),
-    refreshPinboards(),
-    refreshSourceApps(),
-    refreshHistoryItems(),
-    refreshPasteStack()
-  ])
+  unsubPanelPreparing = window.api.onPanelPreparing(async (requestId) => {
+    currentPanelRequestId = requestId
+    panelPreparing.value = false
+    clearPanelPreparingTimer()
+    clearSelection()
+    closeAllMenus()
+    panelPreparingTimer = window.setTimeout(() => {
+      if (currentPanelRequestId !== requestId) return
+      if (!hasItems.value && !loading.value) {
+        panelPreparing.value = true
+      }
+    }, 160)
+  })
+  unsubPreparePanel = window.api.onPreparePanelShow(async (requestId, snapshot) => {
+    if (currentPanelRequestId !== null && requestId < currentPanelRequestId) return
+    currentPanelRequestId = requestId
+    clearPanelPreparingTimer()
+    panelPreparing.value = false
+    applyPanelSnapshot(snapshot, lastAppliedPanelRequestId !== requestId)
+    lastAppliedPanelRequestId = requestId
+  })
   unsubItems = window.api.onClipItemsChanged(async () => {
-    await Promise.all([refreshSourceApps(), refreshHistoryItems()])
-    if (activePinboardId.value) await refreshPinboardItems(activePinboardId.value)
-    if (isSearchActive.value) await runSearch()
+    await refreshAfterMutation()
   })
   unsubState = window.api.onClipStateChanged((state) => {
     paused.value = state.paused
@@ -957,18 +1100,25 @@ onMounted(async () => {
     void refreshPasteStack()
   })
 
+  await Promise.all([refreshPinboards(), refreshVisibleState()])
+
   window.addEventListener('click', closeAllMenus)
   window.addEventListener('contextmenu', onWindowContextMenu)
   window.addEventListener('keydown', onWindowKeyDown)
+  window.addEventListener('focus', onWindowFocus)
 })
 
 onBeforeUnmount(() => {
+  unsubPanelPreparing?.()
+  unsubPreparePanel?.()
   unsubItems?.()
   unsubState?.()
   unsubStack?.()
   window.removeEventListener('click', closeAllMenus)
   window.removeEventListener('contextmenu', onWindowContextMenu)
   window.removeEventListener('keydown', onWindowKeyDown)
+  window.removeEventListener('focus', onWindowFocus)
+  clearPanelPreparingTimer()
   if (toastTimer) window.clearTimeout(toastTimer)
   if (searchTimer) window.clearTimeout(searchTimer)
 })
@@ -1192,7 +1342,13 @@ onBeforeUnmount(() => {
 
             <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
-            <div v-if="!hasItems && !loading" class="empty-state">
+            <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
+              <div class="loading-spinner"></div>
+              <div class="loading-title">正在同步最新剪贴板…</div>
+              <div class="loading-sub">内容准备好后会立即显示</div>
+            </div>
+
+            <div v-else-if="!hasItems && !loading" class="empty-state">
               <p>
                 {{
                   isSearchActive
@@ -1214,7 +1370,7 @@ onBeforeUnmount(() => {
             </div>
 
             <template v-else>
-              <div v-if="showingHistory" class="cards">
+              <div v-if="showingHistory" ref="historyCardsRef" class="cards">
                 <div
                   v-for="item in visibleItems"
                   :key="item.id"
@@ -1248,7 +1404,14 @@ onBeforeUnmount(() => {
 
                   <div class="card-footer">
                     <div class="app-pill">
-                      <span class="app-dot">{{ (item.source_app_name || 'App').slice(0, 1) }}</span>
+                      <img
+                        v-if="appIconSrc(item)"
+                        class="app-icon"
+                        :src="appIconSrc(item)!"
+                        :alt="item.source_app_name || '应用图标'"
+                        @error="markAppIconFailed(item)"
+                      />
+                      <span v-else class="app-dot">{{ appIconInitial(item) }}</span>
                       <div class="app-meta">
                         <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
                         <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
@@ -1540,7 +1703,7 @@ body {
   color: var(--text-primary);
   overflow: hidden;
   user-select: none;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
 }
 
 .app {
@@ -1556,7 +1719,7 @@ body {
   gap: 8px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
   position: relative;
 }
 
@@ -1914,10 +2077,40 @@ body {
   font-size: 12px !important;
 }
 
+.loading-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 2px solid var(--border-color);
+  border-top-color: var(--accent-color);
+  animation: spin 0.8s linear infinite;
+}
+
+.loading-title {
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.loading-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .cards {
   flex: 1;
   min-height: 0;
   display: flex;
+  align-items: stretch;
   gap: 12px;
   overflow-x: auto;
   overflow-y: hidden;
@@ -1928,8 +2121,9 @@ body {
 .card {
   width: 260px;
   min-width: 260px;
-  height: 100%;
-  max-height: 240px;
+  height: 228px;
+  min-height: 228px;
+  max-height: 228px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 16px;
@@ -1971,9 +2165,11 @@ body {
 
 .card-body {
   flex: 1;
+  min-height: 0;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
+  overflow: hidden;
 }
 
 .text-preview {
@@ -1997,7 +2193,7 @@ body {
 
 .image-box {
   width: 100%;
-  height: 132px;
+  height: 118px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
@@ -2015,7 +2211,7 @@ body {
 
 .color-box {
   width: 100%;
-  height: 132px;
+  height: 118px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   display: flex;
@@ -2035,6 +2231,7 @@ body {
 .card-footer {
   display: flex;
   justify-content: flex-start;
+  min-height: 40px;
 }
 
 .app-pill {
@@ -2054,6 +2251,15 @@ body {
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   font-weight: 700;
+}
+
+.app-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 .app-meta {
@@ -2160,6 +2366,15 @@ body {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sel-btn {

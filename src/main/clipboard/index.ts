@@ -4,21 +4,39 @@ import { getDatabase } from '../database'
 import { getMainWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { ClipItem, PasteStackState } from '../../shared/types'
-import { ClipboardWatcher } from './watcher'
+import { ClipboardWatcher, createClipboardSignature, getClipboardSignature } from './watcher'
 
 let watcher: ClipboardWatcher | null = null
 let lastActiveApp: FrontmostAppInfo | null = null
 let stackEnabled = false
 let stackQueue: Array<{ entryId: string; itemId: string; createdAt: number }> = []
 let stackPasting = false
+let burstIntervalId: NodeJS.Timeout | null = null
+let burstTimeoutId: NodeJS.Timeout | null = null
+let burstResolve: (() => void) | null = null
 
 function notifyStackChanged(): void {
   getMainWindow()?.webContents.send('clip:stackChanged')
 }
 
+function stopClipboardCaptureBurst(): void {
+  if (burstIntervalId) {
+    clearInterval(burstIntervalId)
+    burstIntervalId = null
+  }
+  if (burstTimeoutId) {
+    clearTimeout(burstTimeoutId)
+    burstTimeoutId = null
+  }
+  if (burstResolve) {
+    burstResolve()
+    burstResolve = null
+  }
+}
+
 export function startClipboardWatcher(): void {
   if (watcher) return
-  watcher = new ClipboardWatcher(350, ({ id }) => {
+  watcher = new ClipboardWatcher(220, ({ id }) => {
     getMainWindow()?.webContents.send('clip:itemsChanged')
     if (stackEnabled) {
       stackQueue.push({ entryId: randomUUID(), itemId: id, createdAt: Date.now() })
@@ -29,6 +47,7 @@ export function startClipboardWatcher(): void {
 }
 
 export function stopClipboardWatcher(): void {
+  stopClipboardCaptureBurst()
   watcher?.stop()
   watcher = null
 }
@@ -40,6 +59,92 @@ export function isClipboardPaused(): boolean {
 export function setClipboardPaused(paused: boolean): void {
   watcher?.setPaused(paused)
   getMainWindow()?.webContents.send('clip:stateChanged', { paused })
+}
+
+export function captureClipboardNow(): void {
+  watcher?.captureNow()
+}
+
+export function captureClipboardBurst(durationMs = 450, intervalMs = 50): Promise<void> {
+  if (!watcher) return Promise.resolve()
+
+  watcher.captureNow()
+  stopClipboardCaptureBurst()
+
+  return new Promise((resolve) => {
+    burstResolve = resolve
+    burstIntervalId = setInterval(() => {
+      watcher?.captureNow()
+    }, intervalMs)
+
+    burstTimeoutId = setTimeout(() => {
+      stopClipboardCaptureBurst()
+    }, durationMs)
+  })
+}
+
+function getLatestClipboardMarker(): {
+  id: string | null
+  createdAt: number | null
+  signature: string | null
+} {
+  const db = getDatabase()
+  const latest = db
+    .prepare(
+      'SELECT id, type, content, plain_text, created_at FROM clip_items ORDER BY created_at DESC LIMIT 1'
+    )
+    .get() as Pick<ClipItem, 'id' | 'type' | 'content' | 'plain_text' | 'created_at'> | undefined
+
+  if (!latest) {
+    return { id: null, createdAt: null, signature: null }
+  }
+
+  return {
+    id: latest.id,
+    createdAt: latest.created_at,
+    signature: createClipboardSignature(latest)
+  }
+}
+
+export async function captureClipboardBeforePanelShow(): Promise<void> {
+  if (!watcher) return
+
+  const maxWaitMs = 420
+  const intervalMs = 40
+  const settleMs = 90
+  const start = Date.now()
+  watcher.captureNow()
+
+  let lastSignature = getClipboardSignature()
+  let latest = getLatestClipboardMarker()
+  if (lastSignature === latest.signature) {
+    return
+  }
+
+  let lastSignatureChangedAt = Date.now()
+
+  while (true) {
+    if (Date.now() - start >= maxWaitMs) {
+      return
+    }
+
+    await delay(intervalMs)
+    watcher.captureNow()
+
+    const currentSignature = getClipboardSignature()
+    if (currentSignature !== lastSignature) {
+      lastSignature = currentSignature
+      lastSignatureChangedAt = Date.now()
+    }
+
+    latest = getLatestClipboardMarker()
+    const settledFor = Date.now() - lastSignatureChangedAt
+    const clipboardCaughtUp = currentSignature === latest.signature
+
+    if (clipboardCaughtUp && settledFor >= settleMs) {
+      return
+    }
+  }
 }
 
 export function suppressNextClipboardCapture(ms = 800): void {

@@ -32,6 +32,19 @@ export interface SourceAppSummary {
   count: number
 }
 
+export interface PanelSnapshot {
+  paused: boolean
+  historyItems: ClipItem[]
+  sourceApps: SourceAppSummary[]
+  pinboards: Pinboard[]
+  pasteStackState: PasteStackState
+}
+
+export interface AppIconTarget {
+  bundleId: string | null
+  name: string | null
+}
+
 export interface PasteStackEntry {
   entry_id: string
   item_id: string
@@ -81,6 +94,10 @@ export interface IpcApi {
   copyClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
   onClipItemsChanged: (callback: () => void) => () => void
   onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
+  onPanelPreparing: (callback: (requestId: number) => void | Promise<void>) => () => void
+  onPreparePanelShow: (
+    callback: (requestId: number, snapshot: PanelSnapshot) => void | Promise<void>
+  ) => () => void
   getPasteStackState: () => Promise<PasteStackState>
   setPasteStackEnabled: (enabled: boolean) => Promise<void>
   clearPasteStack: () => Promise<void>
@@ -108,4 +125,5 @@ export interface IpcApi {
   // System
   getAccessibilityPermission: () => Promise<boolean>
   requestAccessibilityPermission: () => void
+  getAppIcons: (targets: AppIconTarget[]) => Promise<Record<string, string | null>>
 }

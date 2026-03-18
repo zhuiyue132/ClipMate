@@ -10,18 +10,24 @@ function safeTrim(value: string | undefined): string | null {
   return trimmed ? trimmed : null
 }
 
+const FRONTMOST_APP_SCRIPT = `
+ObjC.import('AppKit')
+const app = $.NSWorkspace.sharedWorkspace.frontmostApplication
+if (!app) {
+  ''
+} else {
+  [
+    ObjC.unwrap(app.bundleIdentifier) || '',
+    ObjC.unwrap(app.localizedName) || ''
+  ].join('\\n')
+}
+`
+
 export function getFrontmostAppInfo(): FrontmostAppInfo {
   try {
-    const output = execFileSync(
-      'osascript',
-      [
-        '-e',
-        'tell application "System Events" to get bundle identifier of first application process whose frontmost is true',
-        '-e',
-        'tell application "System Events" to get name of first application process whose frontmost is true'
-      ],
-      { encoding: 'utf8' }
-    )
+    const output = execFileSync('osascript', ['-l', 'JavaScript', '-e', FRONTMOST_APP_SCRIPT], {
+      encoding: 'utf8'
+    })
 
     const [bundleIdLine, nameLine] = output.split('\n')
     return {
@@ -36,16 +42,12 @@ export function getFrontmostAppInfo(): FrontmostAppInfo {
 export function activateApp(target: FrontmostAppInfo): void {
   try {
     if (target.bundleId) {
-      execFileSync('osascript', ['-e', `tell application id "${target.bundleId}" to activate`], {
-        encoding: 'utf8'
-      })
+      execFileSync('open', ['-b', target.bundleId], { encoding: 'utf8' })
       return
     }
 
     if (target.name) {
-      execFileSync('osascript', ['-e', `tell application "${target.name}" to activate`], {
-        encoding: 'utf8'
-      })
+      execFileSync('open', ['-a', target.name], { encoding: 'utf8' })
     }
   } catch {
     // ignore
