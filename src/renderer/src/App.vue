@@ -6,32 +6,35 @@ import type {
   PanelSnapshot,
   PasteStackEntry,
   PasteStackState,
-  Pinboard,
   SearchFilters,
   SourceAppSummary
 } from '../../shared/types'
 
-type ContextKind = 'clip' | 'pinboard'
-type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'delete' | 'removeFromPinboard'
-type PinboardMenuAction = 'rename' | 'delete'
+type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'delete'
+type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
+type DatePreset = 'all' | 'today' | 'week' | 'custom'
+const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
+  { value: 'all', label: '全部' },
+  { value: 'text', label: '文本' },
+  { value: 'image', label: '图片' },
+  { value: 'link', label: '链接' },
+  { value: 'file', label: '文件' },
+  { value: 'color', label: '颜色' }
+]
+const HEADER_CONTROL_COUNT = TYPE_OPTIONS.length + 1
 
 const historyItems = ref<ClipItem[]>([])
-const pinboardItems = ref<ClipItem[]>([])
-const pinboards = ref<Pinboard[]>([])
-const activePinboardId = ref<string | null>(null)
-
 const paused = ref(false)
 const loading = ref(false)
 
 const search = ref('')
+const searchExpanded = ref(false)
 const moreOpen = ref(false)
 const filtersOpen = ref(false)
-
-type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 const typeChip = ref<TypeChip>('all')
+const typeFocusIndex = ref(0)
 const sourceApps = ref<SourceAppSummary[]>([])
 const sourceAppFilter = ref<string | null>(null)
-type DatePreset = 'all' | 'today' | 'week' | 'custom'
 const datePreset = ref<DatePreset>('all')
 const customFrom = ref('')
 const customTo = ref('')
@@ -39,6 +42,7 @@ const customTo = ref('')
 const searchResults = ref<ClipItem[] | null>(null)
 const searching = ref(false)
 
+const activeCardId = ref<string | null>(null)
 const selectedIds = ref<string[]>([])
 const anchorId = ref<string | null>(null)
 const hoveredId = ref<string | null>(null)
@@ -52,36 +56,46 @@ const editText = ref('')
 const renameOpen = ref(false)
 const renameDraft = ref('')
 const colorDraft = ref('#007AFF')
-const bulkPinOpen = ref(false)
+
 const panelMode = ref<'main' | 'stack'>('main')
 const pasteStackState = ref<PasteStackState>({ enabled: false, entries: [] })
 const stackDraggingId = ref<string | null>(null)
 
 const toast = ref<string | null>(null)
 let toastTimer: number | null = null
+let activeCardScrollFrame: number | null = null
 
 const ctxOpen = ref(false)
 const ctxX = ref(0)
 const ctxY = ref(0)
-const ctxKind = ref<ContextKind | null>(null)
 const ctxItem = ref<ClipItem | null>(null)
-const ctxPinboard = ref<Pinboard | null>(null)
-const pinPickerOpen = ref(false)
 
-const draggingId = ref<string | null>(null)
 const historyCardsRef = ref<HTMLElement | null>(null)
+const searchInputRef = ref<HTMLInputElement | null>(null)
+const searchToggleRef = ref<HTMLButtonElement | null>(null)
+const chipRailRef = ref<HTMLElement | null>(null)
 const panelPreparing = ref(false)
 const appIcons = ref<Record<string, string | null>>({})
 const appIconFailures = ref<Record<string, true>>({})
+const resolvedSearchKey = ref<string | null>(null)
+const cardRefs = new Map<string, HTMLElement>()
 
-const showingHistory = computed(() => activePinboardId.value === null)
-const activePinboard = computed(() => {
-  if (!activePinboardId.value) return null
-  return pinboards.value.find((p) => p.id === activePinboardId.value) ?? null
-})
+const trimmedSearch = computed(() => search.value.trim())
+const hasRemoteSearchQuery = computed(() => trimmedSearch.value.length > 0)
+
+function activeSearchKey(): string {
+  return JSON.stringify({
+    query: trimmedSearch.value,
+    type: typeChip.value,
+    sourceApp: sourceAppFilter.value,
+    datePreset: datePreset.value,
+    customFrom: customFrom.value,
+    customTo: customTo.value
+  })
+}
 
 const isSearchActive = computed(() => {
-  const q = search.value.trim()
+  const q = trimmedSearch.value
   return (
     q.length > 0 ||
     typeChip.value !== 'all' ||
@@ -90,12 +104,36 @@ const isSearchActive = computed(() => {
   )
 })
 
+function itemMatchesActiveFilters(item: ClipItem): boolean {
+  const allowedTypes = typesForChip(typeChip.value)
+  if (allowedTypes.length > 0 && !allowedTypes.includes(item.type)) return false
+
+  if (sourceAppFilter.value !== null && item.source_app !== sourceAppFilter.value) return false
+
+  const { dateFrom, dateTo } = resolveDateRange()
+  if (dateFrom !== null && item.created_at < dateFrom) return false
+  if (dateTo !== null && item.created_at > dateTo) return false
+
+  return true
+}
+
+const filteredHistoryItems = computed(() => historyItems.value.filter(itemMatchesActiveFilters))
+
 const visibleItems = computed(() => {
-  if (isSearchActive.value) return searchResults.value ?? []
-  return showingHistory.value ? historyItems.value : pinboardItems.value
+  if (!isSearchActive.value) return historyItems.value
+  if (!hasRemoteSearchQuery.value) return filteredHistoryItems.value
+  if (resolvedSearchKey.value === activeSearchKey() && searchResults.value !== null) {
+    return searchResults.value
+  }
+  return filteredHistoryItems.value
 })
 
-const hasItems = computed(() => visibleItems.value.length > 0)
+const hasItems = computed(() => {
+  if (panelMode.value === 'stack') {
+    return pasteStackState.value.entries.length > 0
+  }
+  return visibleItems.value.length > 0
+})
 
 const previewLinkMeta = computed(() => {
   const item = previewItem.value
@@ -111,6 +149,230 @@ const previewLinkMeta = computed(() => {
     return null
   }
 })
+
+function typeChipIndex(value: TypeChip): number {
+  const idx = TYPE_OPTIONS.findIndex((option) => option.value === value)
+  return idx >= 0 ? idx : 0
+}
+
+function syncTypeFocus(value: TypeChip): void {
+  typeFocusIndex.value = typeChipIndex(value)
+}
+
+function normalizeHeaderFocusIndex(index: number): number {
+  return (index + HEADER_CONTROL_COUNT) % HEADER_CONTROL_COUNT
+}
+
+function scrollFocusedHeaderControlIntoView(index = typeFocusIndex.value): void {
+  if (index === TYPE_OPTIONS.length) return
+
+  const rail = chipRailRef.value
+  if (!rail) return
+  const button = rail.querySelector<HTMLButtonElement>(`[data-chip-index="${index}"]`)
+  button?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
+}
+
+function focusHeaderControl(index: number): void {
+  const nextIndex = normalizeHeaderFocusIndex(index)
+  typeFocusIndex.value = nextIndex
+
+  if (nextIndex === TYPE_OPTIONS.length) {
+    searchToggleRef.value?.focus({ preventScroll: true })
+    scrollFocusedHeaderControlIntoView(nextIndex)
+    return
+  }
+
+  const rail = chipRailRef.value
+  if (!rail) return
+  const button = rail.querySelector<HTMLButtonElement>(`[data-chip-index="${nextIndex}"]`)
+  button?.focus({ preventScroll: true })
+  scrollFocusedHeaderControlIntoView(nextIndex)
+}
+
+function onChipFocus(index: number): void {
+  typeFocusIndex.value = index
+}
+
+function onChipClick(index: number): void {
+  typeChip.value = TYPE_OPTIONS[index].value
+  typeFocusIndex.value = index
+}
+
+function onChipKeyDown(event: KeyboardEvent, index: number): void {
+  if (event.key === 'Tab') {
+    event.preventDefault()
+    event.stopPropagation()
+    focusHeaderControl(index + (event.shiftKey ? -1 : 1))
+    return
+  }
+
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    event.stopPropagation()
+    typeChip.value = TYPE_OPTIONS[index].value
+    return
+  }
+}
+
+function onSearchToggleFocus(): void {
+  typeFocusIndex.value = TYPE_OPTIONS.length
+}
+
+function onSearchToggleKeyDown(event: KeyboardEvent): void {
+  if (event.key === 'Tab') {
+    event.preventDefault()
+    event.stopPropagation()
+    focusHeaderControl(TYPE_OPTIONS.length + (event.shiftKey ? -1 : 1))
+    return
+  }
+
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    event.stopPropagation()
+    toggleSearch()
+  }
+}
+
+function focusSearchInput(selectText = false): void {
+  void nextTick(() => {
+    searchInputRef.value?.focus()
+    if (selectText) {
+      searchInputRef.value?.select()
+    }
+  })
+}
+
+function toggleSearch(): void {
+  if (!searchExpanded.value) {
+    searchExpanded.value = true
+    focusSearchInput()
+    return
+  }
+
+  if (search.value.trim()) {
+    focusSearchInput(true)
+    return
+  }
+
+  searchExpanded.value = false
+}
+
+function collapseSearchIfIdle(): void {
+  if (search.value.trim()) return
+  searchExpanded.value = false
+}
+
+function onSearchKeyDown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    if (search.value.trim()) {
+      search.value = ''
+    } else {
+      searchExpanded.value = false
+    }
+    return
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    void runSearch()
+  }
+}
+
+function setCardRef(itemId: string, el: unknown): void {
+  const element =
+    el instanceof HTMLElement
+      ? el
+      : typeof el === 'object' &&
+          el !== null &&
+          '$el' in el &&
+          (el as { $el?: unknown }).$el instanceof HTMLElement
+        ? ((el as { $el: HTMLElement }).$el ?? null)
+        : null
+
+  if (element instanceof HTMLElement) {
+    cardRefs.set(itemId, element)
+    return
+  }
+  cardRefs.delete(itemId)
+}
+
+function scrollCardIntoView(itemId: string): void {
+  const container = historyCardsRef.value
+  if (!container || panelMode.value !== 'main') return
+
+  const card = container.querySelector<HTMLElement>(`[data-card-id="${itemId}"]`)
+  if (!card) return
+
+  let leftInContainer = 0
+  let el: HTMLElement | null = card
+  while (el && el !== container) {
+    leftInContainer += el.offsetLeft
+    el = el.offsetParent as HTMLElement | null
+  }
+
+  const centeredLeft = leftInContainer - (container.clientWidth - card.offsetWidth) / 2
+  const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth)
+  const nextLeft = Math.max(0, Math.min(maxScrollLeft, centeredLeft))
+
+  container.scrollLeft = nextLeft
+}
+
+function scheduleScrollCardIntoView(itemId: string): void {
+  if (activeCardScrollFrame !== null) {
+    window.cancelAnimationFrame(activeCardScrollFrame)
+    activeCardScrollFrame = null
+  }
+
+  activeCardScrollFrame = window.requestAnimationFrame(() => {
+    activeCardScrollFrame = null
+    scrollCardIntoView(itemId)
+  })
+}
+
+function setActiveCard(itemId: string | null): void {
+  activeCardId.value = itemId
+}
+
+function getActiveCardIndex(): number {
+  if (visibleItems.value.length === 0) return -1
+  const currentId =
+    activeCardId.value ?? (selectedIds.value.length === 1 ? selectedIds.value[0] : hoveredId.value)
+  if (!currentId) return -1
+  return visibleItems.value.findIndex((item) => item.id === currentId)
+}
+
+function moveActiveCard(direction: -1 | 1): void {
+  const items = visibleItems.value
+  if (items.length === 0) return
+  if (selectedIds.value.length > 0) {
+    clearSelection()
+  }
+
+  const currentIndex = getActiveCardIndex()
+  const nextIndex =
+    currentIndex < 0
+      ? direction > 0
+        ? 0
+        : items.length - 1
+      : (currentIndex + direction + items.length) % items.length
+  const nextId = items[nextIndex].id
+  setActiveCard(nextId)
+  // 直接同步滚动，不走调度
+  scrollCardIntoView(nextId)
+}
+
+async function confirmActiveCard(): Promise<void> {
+  const items = visibleItems.value
+  if (items.length === 0) return
+  const item =
+    items.find((entry) => entry.id === activeCardId.value) ??
+    (selectedIds.value.length === 1
+      ? (items.find((entry) => entry.id === selectedIds.value[0]) ?? null)
+      : null)
+  if (!item) return
+  await onCardClick(item)
+}
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts
@@ -287,28 +549,12 @@ async function refreshHistoryItems(): Promise<void> {
   }
 }
 
-async function refreshPinboards(): Promise<void> {
-  pinboards.value = await window.api.getPinboards()
-}
-
 async function refreshSourceApps(): Promise<void> {
   sourceApps.value = await window.api.getSourceApps()
 }
 
-async function refreshPinboardItems(pinboardId: string): Promise<void> {
-  loading.value = true
-  try {
-    pinboardItems.value = await window.api.getPinboardItems(pinboardId)
-  } finally {
-    loading.value = false
-  }
-}
-
 async function refreshAfterMutation(): Promise<void> {
   await Promise.all([refreshSourceApps(), refreshHistoryItems()])
-  if (activePinboardId.value) {
-    await refreshPinboardItems(activePinboardId.value)
-  }
   if (isSearchActive.value) {
     await runSearch()
   }
@@ -316,7 +562,7 @@ async function refreshAfterMutation(): Promise<void> {
 
 async function refreshVisibleState(): Promise<void> {
   await Promise.all([refreshState(), refreshPasteStack(), refreshAfterMutation()])
-  if (!isSearchActive.value && showingHistory.value) {
+  if (!isSearchActive.value && panelMode.value === 'main') {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
   }
@@ -326,14 +572,14 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   paused.value = snapshot.paused
   historyItems.value = snapshot.historyItems
   sourceApps.value = snapshot.sourceApps
-  pinboards.value = snapshot.pinboards
   pasteStackState.value = snapshot.pasteStackState
   if (!resetUi) return
   panelMode.value = 'main'
-  activePinboardId.value = null
-  pinboardItems.value = []
   search.value = ''
+  searchExpanded.value = false
   typeChip.value = 'all'
+  syncTypeFocus('all')
+  activeCardId.value = null
   sourceAppFilter.value = null
   datePreset.value = 'all'
   customFrom.value = ''
@@ -417,8 +663,8 @@ function endOfDayTs(date: Date): number {
 }
 
 function getWeekStartTs(date: Date): number {
-  const day = date.getDay() // 0..6 (Sun..Sat)
-  const diff = day === 0 ? 6 : day - 1 // Monday as start
+  const day = date.getDay()
+  const diff = day === 0 ? 6 : day - 1
   const d = new Date(date)
   d.setDate(date.getDate() - diff)
   d.setHours(0, 0, 0, 0)
@@ -435,7 +681,7 @@ function typesForChip(chip: TypeChip): Array<ClipItem['type']> {
   return []
 }
 
-function buildSearchFilters(): SearchFilters {
+function resolveDateRange(): { dateFrom: number | null; dateTo: number | null } {
   const now = new Date()
   let dateFrom: number | null = null
   let dateTo: number | null = null
@@ -461,13 +707,18 @@ function buildSearchFilters(): SearchFilters {
     }
   }
 
+  return { dateFrom, dateTo }
+}
+
+function buildSearchFilters(): SearchFilters {
+  const { dateFrom, dateTo } = resolveDateRange()
+
   return {
-    query: search.value.trim(),
+    query: trimmedSearch.value,
     types: typesForChip(typeChip.value),
     sourceApp: sourceAppFilter.value,
     dateFrom,
     dateTo,
-    pinboardId: activePinboardId.value,
     limit: 200,
     offset: 0
   }
@@ -476,25 +727,43 @@ function buildSearchFilters(): SearchFilters {
 let searchSeq = 0
 let searchTimer: number | null = null
 
+function clearSearchTimer(): void {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
+    searchTimer = null
+  }
+}
+
+function resetRemoteSearchState(): void {
+  searchSeq += 1
+  clearSearchTimer()
+  searching.value = false
+  searchResults.value = null
+  resolvedSearchKey.value = null
+}
+
 function scheduleSearch(): void {
-  if (searchTimer) window.clearTimeout(searchTimer)
+  clearSearchTimer()
   searchTimer = window.setTimeout(() => {
+    searchTimer = null
     void runSearch()
   }, 180)
 }
 
 async function runSearch(): Promise<void> {
-  if (!isSearchActive.value) {
-    searchResults.value = null
+  if (!hasRemoteSearchQuery.value) {
+    resetRemoteSearchState()
     return
   }
 
+  const requestKey = activeSearchKey()
   const seq = ++searchSeq
   searching.value = true
   try {
     const results = await window.api.searchClipItems(buildSearchFilters())
     if (seq !== searchSeq) return
     searchResults.value = results
+    resolvedSearchKey.value = requestKey
   } finally {
     if (seq === searchSeq) searching.value = false
   }
@@ -508,12 +777,8 @@ async function refreshState(): Promise<void> {
 function closeAllMenus(): void {
   moreOpen.value = false
   filtersOpen.value = false
-  bulkPinOpen.value = false
   ctxOpen.value = false
-  ctxKind.value = null
   ctxItem.value = null
-  ctxPinboard.value = null
-  pinPickerOpen.value = false
 }
 
 function showToast(message: string): void {
@@ -545,6 +810,7 @@ function toggleSelection(itemId: string): void {
 function selectOnly(itemId: string): void {
   selectedIds.value = [itemId]
   anchorId.value = itemId
+  activeCardId.value = itemId
 }
 
 function selectRange(toId: string): void {
@@ -561,6 +827,7 @@ function selectRange(toId: string): void {
 }
 
 async function onCardClick(item: ClipItem): Promise<void> {
+  setActiveCard(item.id)
   await window.api.pasteClipItem(item.id)
 }
 
@@ -590,14 +857,12 @@ function onItemMouseLeave(item: ClipItem): void {
 
 function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
   ev.preventDefault()
-  ctxKind.value = 'clip'
+  setActiveCard(item.id)
   ctxItem.value = item
-  ctxPinboard.value = null
   ctxX.value = ev.clientX
   ctxY.value = ev.clientY
   ctxOpen.value = true
   moreOpen.value = false
-  pinPickerOpen.value = false
 }
 
 async function openPreviewById(itemId: string): Promise<void> {
@@ -605,6 +870,7 @@ async function openPreviewById(itemId: string): Promise<void> {
   try {
     const item = await window.api.getClipItem(itemId)
     if (!item) return
+    setActiveCard(item.id)
     previewItem.value = item
     previewOpen.value = true
     editMode.value = false
@@ -714,7 +980,6 @@ async function rotateImage(direction: 'left' | 'right'): Promise<void> {
   const rotatedDataUrl = canvas.toDataURL('image/png')
   const contentBase64 = dataUrlToBase64(rotatedDataUrl)
 
-  // thumbnail
   const thumbCanvas = document.createElement('canvas')
   const thumbCtx = thumbCanvas.getContext('2d')
   if (!thumbCtx) return
@@ -767,15 +1032,6 @@ async function deleteFromPreview(): Promise<void> {
   showToast('已删除条目')
 }
 
-async function bulkPinTo(pinboardId: string): Promise<void> {
-  if (selectedIds.value.length === 0) return
-  await window.api.addItemsToPinboard(pinboardId, selectedIds.value)
-  await refreshAfterMutation()
-  bulkPinOpen.value = false
-  clearSelection()
-  showToast('已固定到 Pinboard')
-}
-
 async function bulkDelete(): Promise<void> {
   if (selectedIds.value.length === 0) return
   const ok = window.confirm(`确定删除选中的 ${selectedIds.value.length} 项？`)
@@ -784,28 +1040,6 @@ async function bulkDelete(): Promise<void> {
   await refreshAfterMutation()
   clearSelection()
   showToast('已删除所选条目')
-}
-
-async function bulkRemoveFromPinboard(): Promise<void> {
-  if (!activePinboardId.value) return
-  if (selectedIds.value.length === 0) return
-  const ids = [...selectedIds.value]
-  await Promise.all(ids.map((id) => window.api.removeItemFromPinboard(activePinboardId.value!, id)))
-  await refreshAfterMutation()
-  clearSelection()
-  showToast('已从 Pinboard 移除')
-}
-
-function openPinboardContextMenu(ev: MouseEvent, pinboard: Pinboard): void {
-  ev.preventDefault()
-  ctxKind.value = 'pinboard'
-  ctxPinboard.value = pinboard
-  ctxItem.value = null
-  ctxX.value = ev.clientX
-  ctxY.value = ev.clientY
-  ctxOpen.value = true
-  moreOpen.value = false
-  pinPickerOpen.value = false
 }
 
 async function runClipAction(action: ClipMenuAction): Promise<void> {
@@ -821,38 +1055,9 @@ async function runClipAction(action: ClipMenuAction): Promise<void> {
   if (action === 'pastePlain') {
     await window.api.pasteClipItem(item.id, { plainText: true })
   }
-  if (action === 'removeFromPinboard' && activePinboardId.value) {
-    await window.api.removeItemFromPinboard(activePinboardId.value, item.id)
-    await refreshAfterMutation()
-  }
   if (action === 'delete') {
     await window.api.deleteClipItem(item.id)
     await refreshAfterMutation()
-  }
-
-  closeAllMenus()
-}
-
-async function runPinboardAction(action: PinboardMenuAction): Promise<void> {
-  const pinboard = ctxPinboard.value
-  if (!pinboard) return
-
-  if (action === 'rename') {
-    const next = window.prompt('重命名 Pinboard', pinboard.name)?.trim()
-    if (!next || next === pinboard.name) return
-    await window.api.renamePinboard(pinboard.id, next)
-    await refreshPinboards()
-  }
-
-  if (action === 'delete') {
-    const ok = window.confirm(`确定删除 Pinboard「${pinboard.name}」？`)
-    if (!ok) return
-    await window.api.deletePinboard(pinboard.id)
-    if (activePinboardId.value === pinboard.id) {
-      activePinboardId.value = null
-      pinboardItems.value = []
-    }
-    await Promise.all([refreshPinboards(), refreshHistoryItems()])
   }
 
   closeAllMenus()
@@ -877,66 +1082,6 @@ function quitApp(): void {
   window.api.quitApp()
 }
 
-async function selectHistory(): Promise<void> {
-  activePinboardId.value = null
-  await refreshHistoryItems()
-}
-
-async function selectPinboard(pinboardId: string): Promise<void> {
-  activePinboardId.value = pinboardId
-  await refreshPinboardItems(pinboardId)
-}
-
-async function createPinboard(): Promise<void> {
-  const name = window.prompt('新建 Pinboard', '新 Pinboard')?.trim()
-  if (!name) return
-  await window.api.createPinboard(name, '#007AFF')
-  await refreshPinboards()
-}
-
-async function addToPinboard(pinboardId: string): Promise<void> {
-  if (!ctxItem.value) return
-  await window.api.addItemToPinboard(pinboardId, ctxItem.value.id)
-  await refreshAfterMutation()
-  closeAllMenus()
-}
-
-async function removeFromActivePinboard(item: ClipItem): Promise<void> {
-  if (!activePinboardId.value) return
-  await window.api.removeItemFromPinboard(activePinboardId.value, item.id)
-  await refreshAfterMutation()
-}
-
-function onPinDragStart(ev: DragEvent, itemId: string): void {
-  draggingId.value = itemId
-  ev.dataTransfer?.setData('text/plain', itemId)
-  if (ev.dataTransfer) {
-    ev.dataTransfer.effectAllowed = 'move'
-  }
-}
-
-async function onPinDrop(targetId: string): Promise<void> {
-  if (!activePinboardId.value) return
-  if (isSearchActive.value) return
-  const fromId = draggingId.value
-  draggingId.value = null
-  if (!fromId || fromId === targetId) return
-
-  const from = pinboardItems.value.findIndex((i) => i.id === fromId)
-  const to = pinboardItems.value.findIndex((i) => i.id === targetId)
-  if (from < 0 || to < 0) return
-
-  const next = [...pinboardItems.value]
-  const [moved] = next.splice(from, 1)
-  next.splice(to, 0, moved)
-  pinboardItems.value = next
-
-  await window.api.reorderPinboardItems(
-    activePinboardId.value,
-    next.map((i) => i.id)
-  )
-}
-
 let unsubItems: (() => void) | null = null
 let unsubState: (() => void) | null = null
 let unsubStack: (() => void) | null = null
@@ -953,16 +1098,30 @@ function clearPanelPreparingTimer(): void {
   }
 }
 
-watch(
-  [search, typeChip, sourceAppFilter, datePreset, customFrom, customTo, activePinboardId],
-  () => {
-    clearSelection()
-    scheduleSearch()
+watch(search, () => {
+  clearSelection()
+  if (!hasRemoteSearchQuery.value) {
+    resetRemoteSearchState()
+    return
   }
-)
+  scheduleSearch()
+})
 
-watch([historyItems, typeChip, activePinboardId], async () => {
-  if (!isSearchActive.value && showingHistory.value) {
+watch([typeChip, sourceAppFilter, datePreset, customFrom, customTo], () => {
+  clearSelection()
+  if (!hasRemoteSearchQuery.value) {
+    resetRemoteSearchState()
+    return
+  }
+  void runSearch()
+})
+
+watch(typeChip, (value) => {
+  syncTypeFocus(value)
+})
+
+watch([historyItems, typeChip], async () => {
+  if (!isSearchActive.value && panelMode.value === 'main') {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
   }
@@ -971,15 +1130,29 @@ watch([historyItems, typeChip, activePinboardId], async () => {
 watch(
   visibleItems,
   (items) => {
+    if (items.length === 0) {
+      activeCardId.value = null
+    } else if (!activeCardId.value || !items.some((item) => item.id === activeCardId.value)) {
+      activeCardId.value = items[0].id
+    }
     void ensureVisibleAppIcons(items)
   },
   { immediate: true }
 )
 
+watch(
+  activeCardId,
+  (itemId) => {
+    if (!itemId) return
+    scheduleScrollCardIntoView(itemId)
+  },
+  { flush: 'post' }
+)
+
 function onWindowContextMenu(e: MouseEvent): void {
   if (
     !(e.target as HTMLElement | null)?.closest?.('.card') &&
-    !(e.target as HTMLElement | null)?.closest?.('.sidebar-item')
+    !(e.target as HTMLElement | null)?.closest?.('.stack-row')
   ) {
     closeAllMenus()
   }
@@ -997,6 +1170,7 @@ function getPreviewCandidateId(): string | null {
     return pasteStackState.value.entries[0]?.item_id ?? null
   }
   if (selectedIds.value.length === 1) return selectedIds.value[0]
+  if (activeCardId.value) return activeCardId.value
   if (hoveredId.value) return hoveredId.value
   return visibleItems.value[0]?.id ?? null
 }
@@ -1042,6 +1216,24 @@ function onWindowKeyDown(e: KeyboardEvent): void {
     }
   }
 
+  if (panelMode.value === 'main' && !filtersOpen.value && !moreOpen.value && !ctxOpen.value) {
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault()
+      // 如果焦点在 header 控件上，先 blur 防止浏览器将焦点元素滚入视图导致 chips 偏移
+      const focused = document.activeElement as HTMLElement | null
+      if (focused && chipRailRef.value?.contains(focused)) {
+        focused.blur()
+      }
+      moveActiveCard(e.key === 'ArrowLeft' ? -1 : 1)
+      return
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      void confirmActiveCard()
+      return
+    }
+  }
+
   if (e.key === ' ') {
     const id = getPreviewCandidateId()
     if (id) {
@@ -1069,6 +1261,7 @@ function onWindowFocus(): void {
 }
 
 onMounted(async () => {
+  syncTypeFocus(typeChip.value)
   unsubPanelPreparing = window.api.onPanelPreparing(async (requestId) => {
     currentPanelRequestId = requestId
     panelPreparing.value = false
@@ -1100,7 +1293,7 @@ onMounted(async () => {
     void refreshPasteStack()
   })
 
-  await Promise.all([refreshPinboards(), refreshVisibleState()])
+  await refreshVisibleState()
 
   window.addEventListener('click', closeAllMenus)
   window.addEventListener('contextmenu', onWindowContextMenu)
@@ -1119,6 +1312,10 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onWindowKeyDown)
   window.removeEventListener('focus', onWindowFocus)
   clearPanelPreparingTimer()
+  if (activeCardScrollFrame !== null) {
+    window.cancelAnimationFrame(activeCardScrollFrame)
+    activeCardScrollFrame = null
+  }
   if (toastTimer) window.clearTimeout(toastTimer)
   if (searchTimer) window.clearTimeout(searchTimer)
 })
@@ -1127,57 +1324,149 @@ onBeforeUnmount(() => {
 <template>
   <div class="app">
     <header class="app-header">
-      <div class="search-box">
-        <input v-model="search" type="text" placeholder="搜索剪贴板..." class="search-input" />
-      </div>
-      <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">···</button>
+      <div class="header-placeholder" aria-hidden="true"></div>
 
-      <div v-if="moreOpen" class="popover" @click.stop>
-        <button class="menu-item" @click="openSettings()">⚙ 打开设置</button>
-        <button class="menu-item" @click="togglePaused()">
-          {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
-        </button>
-        <button class="menu-item" @click="openPasteStack()">
-          📦 Paste Stack {{ pasteStackState.enabled ? '· ON' : '' }}
-        </button>
-        <button class="menu-item" @click="clearHistory()">🗑 清空历史</button>
-        <div class="menu-sep"></div>
-        <button class="menu-item danger" @click="quitApp()">⏻ 退出</button>
+      <div class="header-center" @click.stop>
+        <div ref="chipRailRef" class="header-controls">
+          <div class="chips">
+            <button
+              v-for="(option, index) in TYPE_OPTIONS"
+              :key="option.value"
+              class="chip"
+              :tabindex="typeFocusIndex === index ? 0 : -1"
+              :data-chip-index="index"
+              :class="{
+                active: typeChip === option.value,
+                focused: typeFocusIndex === index
+              }"
+              @click="onChipClick(index)"
+              @focus="onChipFocus(index)"
+              @keydown="onChipKeyDown($event, index)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+
+          <div
+            class="search-shell"
+            :class="{ open: searchExpanded, focused: typeFocusIndex === TYPE_OPTIONS.length }"
+          >
+            <button
+              ref="searchToggleRef"
+              class="search-toggle"
+              title="搜索"
+              :tabindex="typeFocusIndex === TYPE_OPTIONS.length ? 0 : -1"
+              @click.stop="toggleSearch()"
+              @focus="onSearchToggleFocus"
+              @keydown="onSearchToggleKeyDown"
+            >
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
+              </svg>
+            </button>
+            <input
+              v-if="searchExpanded"
+              ref="searchInputRef"
+              v-model="search"
+              type="text"
+              placeholder="搜索剪贴板..."
+              class="search-input compact"
+              @blur="collapseSearchIfIdle()"
+              @keydown="onSearchKeyDown"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <div class="action-anchor">
+          <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
+            {{ searching ? '搜索中…' : '筛选' }}
+          </button>
+
+          <div v-if="filtersOpen" class="filter-popover" @click.stop>
+            <div class="filter-group">
+              <div class="filter-label">来源应用</div>
+              <select v-model="sourceAppFilter" class="filter-select">
+                <option :value="null">全部应用</option>
+                <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
+                  {{ app.source_app_name || app.source_app }} · {{ app.count }}
+                </option>
+              </select>
+            </div>
+
+            <div class="filter-group">
+              <div class="filter-label">日期范围</div>
+              <div class="preset-row">
+                <button
+                  class="preset"
+                  :class="{ active: datePreset === 'all' }"
+                  @click="datePreset = 'all'"
+                >
+                  不限
+                </button>
+                <button
+                  class="preset"
+                  :class="{ active: datePreset === 'today' }"
+                  @click="datePreset = 'today'"
+                >
+                  今天
+                </button>
+                <button
+                  class="preset"
+                  :class="{ active: datePreset === 'week' }"
+                  @click="datePreset = 'week'"
+                >
+                  本周
+                </button>
+                <button
+                  class="preset"
+                  :class="{ active: datePreset === 'custom' }"
+                  @click="datePreset = 'custom'"
+                >
+                  自定义
+                </button>
+              </div>
+
+              <div v-if="datePreset === 'custom'" class="custom-row">
+                <input v-model="customFrom" type="date" class="date-input" />
+                <span class="date-sep">–</span>
+                <input v-model="customTo" type="date" class="date-input" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="action-anchor">
+          <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">···</button>
+
+          <div v-if="moreOpen" class="popover" @click.stop>
+            <button class="menu-item" @click="openSettings()">⚙ 打开设置</button>
+            <button class="menu-item" @click="togglePaused()">
+              {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
+            </button>
+            <button class="menu-item" @click="openPasteStack()">
+              📦 Paste Stack {{ pasteStackState.enabled ? '· ON' : '' }}
+            </button>
+            <button class="menu-item" @click="clearHistory()">🗑 清空历史</button>
+            <div class="menu-sep"></div>
+            <button class="menu-item danger" @click="quitApp()">⏻ 退出</button>
+          </div>
+        </div>
       </div>
     </header>
 
     <main class="app-content">
       <div class="layout">
-        <aside v-if="panelMode !== 'stack'" class="sidebar" @click.stop>
-          <div class="sidebar-header">
-            <div class="sidebar-title">Pinboard</div>
-            <button class="sidebar-add" title="新建" @click.stop="createPinboard()">＋</button>
-          </div>
-          <div class="sidebar-list">
-            <button
-              class="sidebar-item"
-              :class="{ active: showingHistory }"
-              @click="selectHistory()"
-            >
-              <span class="sidebar-icon">🕘</span>
-              <span class="sidebar-text">历史</span>
-            </button>
-            <div class="sidebar-sep"></div>
-            <button
-              v-for="pb in pinboards"
-              :key="pb.id"
-              class="sidebar-item"
-              :class="{ active: activePinboardId === pb.id }"
-              @click="selectPinboard(pb.id)"
-              @contextmenu="openPinboardContextMenu($event, pb)"
-            >
-              <span class="pinboard-dot" :style="{ background: pb.color }"></span>
-              <span class="sidebar-text">{{ pb.name }}</span>
-            </button>
-          </div>
-        </aside>
-
-        <section class="main-panel">
+        <section class="main-panel" :class="{ 'with-selection-bar': selectedIds.length > 0 }">
           <template v-if="panelMode === 'stack'">
             <div class="stack-header">
               <div class="stack-title">
@@ -1237,109 +1526,6 @@ onBeforeUnmount(() => {
           </template>
 
           <template v-else>
-            <div class="filters" @click.stop>
-              <div class="chips">
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'all' }"
-                  @click="typeChip = 'all'"
-                >
-                  全部
-                </button>
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'text' }"
-                  @click="typeChip = 'text'"
-                >
-                  文本
-                </button>
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'image' }"
-                  @click="typeChip = 'image'"
-                >
-                  图片
-                </button>
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'link' }"
-                  @click="typeChip = 'link'"
-                >
-                  链接
-                </button>
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'file' }"
-                  @click="typeChip = 'file'"
-                >
-                  文件
-                </button>
-                <button
-                  class="chip"
-                  :class="{ active: typeChip === 'color' }"
-                  @click="typeChip = 'color'"
-                >
-                  颜色
-                </button>
-              </div>
-
-              <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
-                {{ searching ? '搜索中…' : '筛选' }}
-              </button>
-
-              <div v-if="filtersOpen" class="filter-popover" @click.stop>
-                <div class="filter-group">
-                  <div class="filter-label">来源应用</div>
-                  <select v-model="sourceAppFilter" class="filter-select">
-                    <option :value="null">全部应用</option>
-                    <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
-                      {{ app.source_app_name || app.source_app }} · {{ app.count }}
-                    </option>
-                  </select>
-                </div>
-
-                <div class="filter-group">
-                  <div class="filter-label">日期范围</div>
-                  <div class="preset-row">
-                    <button
-                      class="preset"
-                      :class="{ active: datePreset === 'all' }"
-                      @click="datePreset = 'all'"
-                    >
-                      不限
-                    </button>
-                    <button
-                      class="preset"
-                      :class="{ active: datePreset === 'today' }"
-                      @click="datePreset = 'today'"
-                    >
-                      今天
-                    </button>
-                    <button
-                      class="preset"
-                      :class="{ active: datePreset === 'week' }"
-                      @click="datePreset = 'week'"
-                    >
-                      本周
-                    </button>
-                    <button
-                      class="preset"
-                      :class="{ active: datePreset === 'custom' }"
-                      @click="datePreset = 'custom'"
-                    >
-                      自定义
-                    </button>
-                  </div>
-
-                  <div v-if="datePreset === 'custom'" class="custom-row">
-                    <input v-model="customFrom" type="date" class="date-input" />
-                    <span class="date-sep">–</span>
-                    <input v-model="customTo" type="date" class="date-input" />
-                  </div>
-                </div>
-              </div>
-            </div>
-
             <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
             <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
@@ -1349,33 +1535,24 @@ onBeforeUnmount(() => {
             </div>
 
             <div v-else-if="!hasItems && !loading" class="empty-state">
-              <p>
-                {{
-                  isSearchActive
-                    ? '没有匹配结果'
-                    : showingHistory
-                      ? 'ClipMate 已就绪'
-                      : 'Pinboard 为空'
-                }}
-              </p>
+              <p>{{ isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪' }}</p>
               <p class="empty-hint">
-                {{
-                  isSearchActive
-                    ? '试试更换关键词或筛选条件'
-                    : showingHistory
-                      ? '复制内容后将自动显示在这里'
-                      : '在历史记录中右键 → 固定到 Pinboard'
-                }}
+                {{ isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里' }}
               </p>
             </div>
 
-            <template v-else>
-              <div v-if="showingHistory" ref="historyCardsRef" class="cards">
+            <div v-else ref="historyCardsRef" class="cards-viewport">
+              <div class="cards">
                 <div
                   v-for="item in visibleItems"
                   :key="item.id"
+                  :ref="(el) => setCardRef(item.id, el)"
                   class="card"
-                  :class="{ selected: selectedSet.has(item.id) }"
+                  :data-card-id="item.id"
+                  :class="{
+                    active: activeCardId === item.id,
+                    selected: selectedSet.has(item.id)
+                  }"
                   @mouseenter="onItemMouseEnter(item)"
                   @mouseleave="onItemMouseLeave(item)"
                   @click="onItemClick($event, item)"
@@ -1420,116 +1597,32 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
               </div>
-
-              <div v-else class="pinboard-view">
-                <div class="pinboard-head">
-                  <div class="pinboard-name">{{ activePinboard?.name || 'Pinboard' }}</div>
-                  <div class="pinboard-count">{{ visibleItems.length }} 项</div>
-                </div>
-
-                <div class="pin-items">
-                  <div
-                    v-for="(item, index) in visibleItems"
-                    :key="item.id"
-                    class="pin-row"
-                    :class="{ selected: selectedSet.has(item.id) }"
-                    :draggable="!isSearchActive"
-                    @dragstart="onPinDragStart($event, item.id)"
-                    @dragover.prevent
-                    @drop.prevent="onPinDrop(item.id)"
-                    @mouseenter="onItemMouseEnter(item)"
-                    @mouseleave="onItemMouseLeave(item)"
-                    @click="onItemClick($event, item)"
-                    @contextmenu="openClipContextMenu($event, item)"
-                  >
-                    <div class="pin-index">{{ index + 1 }}</div>
-                    <!-- eslint-disable-next-line vue/no-v-html -->
-                    <div class="pin-title" v-html="highlight(previewText(item))"></div>
-                    <button
-                      class="pin-remove"
-                      title="移除"
-                      @click.stop="removeFromActivePinboard(item)"
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <div
-              v-if="ctxOpen"
-              class="ctx-menu"
-              :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
-              @click.stop
-            >
-              <template v-if="ctxKind === 'clip'">
-                <button class="menu-item" @click="previewFromContext()">👁 预览</button>
-                <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
-                <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
-                <button class="menu-item" @click="runClipAction('pastePlain')">
-                  Tt 粘贴为纯文本
-                </button>
-                <button class="menu-item" @click.stop="pinPickerOpen = !pinPickerOpen">
-                  📌 固定到 Pinboard
-                </button>
-                <div v-if="pinPickerOpen" class="submenu">
-                  <button
-                    v-for="pb in pinboards"
-                    :key="pb.id"
-                    class="menu-item submenu-item"
-                    @click="addToPinboard(pb.id)"
-                  >
-                    <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
-                    {{ pb.name }}
-                  </button>
-                </div>
-                <button
-                  v-if="activePinboardId"
-                  class="menu-item"
-                  @click="runClipAction('removeFromPinboard')"
-                >
-                  ➖ 从当前 Pinboard 移除
-                </button>
-                <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
-                <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
-                <div class="menu-sep"></div>
-                <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
-              </template>
-
-              <template v-else-if="ctxKind === 'pinboard'">
-                <button class="menu-item" @click="runPinboardAction('rename')">✏️ 重命名</button>
-                <div class="menu-sep"></div>
-                <button class="menu-item danger" @click="runPinboardAction('delete')">
-                  🗑 删除
-                </button>
-              </template>
-            </div>
-
-            <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
-              <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
-              <div class="sel-actions">
-                <button class="sel-btn" @click.stop="bulkPinOpen = !bulkPinOpen">📌 固定…</button>
-                <button v-if="activePinboardId" class="sel-btn" @click="bulkRemoveFromPinboard()">
-                  ➖ 移除
-                </button>
-                <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
-                <button class="sel-btn" @click="clearSelection()">取消</button>
-              </div>
-
-              <div v-if="bulkPinOpen" class="sel-popover" @click.stop>
-                <button
-                  v-for="pb in pinboards"
-                  :key="pb.id"
-                  class="sel-item"
-                  @click="bulkPinTo(pb.id)"
-                >
-                  <span class="pinboard-dot small" :style="{ background: pb.color }"></span>
-                  {{ pb.name }}
-                </button>
-              </div>
             </div>
           </template>
+
+          <div
+            v-if="ctxOpen"
+            class="ctx-menu"
+            :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
+            @click.stop
+          >
+            <button class="menu-item" @click="previewFromContext()">👁 预览</button>
+            <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
+            <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
+            <button class="menu-item" @click="runClipAction('pastePlain')">Tt 粘贴为纯文本</button>
+            <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
+            <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
+            <div class="menu-sep"></div>
+            <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
+          </div>
+
+          <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
+            <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
+            <div class="sel-actions">
+              <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
+              <button class="sel-btn" @click="clearSelection()">取消</button>
+            </div>
+          </div>
 
           <div v-if="toast" class="toast" @click.stop>{{ toast }}</div>
         </section>
@@ -1714,33 +1807,163 @@ body {
 }
 
 .app-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: 14px;
+  padding: 14px 18px 12px;
   border-bottom: 1px solid var(--border-color);
   -webkit-app-region: no-drag;
   position: relative;
 }
 
-.search-box {
-  flex: 1;
-  -webkit-app-region: no-drag;
+.header-placeholder {
+  min-width: 0;
+}
+
+.header-center {
+  justify-self: center;
+  max-width: min(72vw, 900px);
+  min-width: 0;
+  overflow: visible;
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 4px 0;
+  overflow: visible;
+}
+
+.header-actions {
+  justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.action-anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: min(58vw, 720px);
+  padding: 4px;
+  margin: -4px;
+  scroll-behavior: smooth;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  padding: 7px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+.chip:hover {
+  background: var(--bg-card);
+}
+
+.chip.active {
+  background: rgba(0, 122, 255, 0.18);
+  border-color: rgba(0, 122, 255, 0.28);
+  color: var(--text-primary);
+}
+
+.chip.focused {
+  transform: translateY(-1px);
+  border-color: rgba(0, 122, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+}
+
+.search-shell {
+  display: flex;
+  align-items: center;
+  width: 38px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  transition:
+    width 0.2s ease,
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.search-shell.open {
+  width: 224px;
+  border-color: rgba(0, 122, 255, 0.28);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+}
+
+.search-shell.focused {
+  border-color: rgba(0, 122, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.12);
+}
+
+.search-toggle {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-toggle:hover {
+  color: var(--text-primary);
+}
+
+.search-toggle svg {
+  width: 15px;
+  height: 15px;
 }
 
 .search-input {
   width: 100%;
-  padding: 6px 12px;
-  border: 1px solid var(--border-color);
-  border-radius: 10px;
-  background: var(--bg-surface);
+  padding: 0 12px 0 2px;
+  border: none;
+  background: transparent;
   color: var(--text-primary);
   font-size: 13px;
   outline: none;
 }
 
-.search-input:focus {
-  border-color: var(--accent-color);
+.search-input.compact {
+  height: 36px;
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
 }
 
 .more-btn {
@@ -1760,8 +1983,8 @@ body {
 
 .popover {
   position: absolute;
-  right: 16px;
-  top: 48px;
+  right: 0;
+  top: calc(100% + 10px);
   width: 240px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -1774,7 +1997,9 @@ body {
 
 .app-content {
   flex: 1;
-  padding: 16px;
+  display: flex;
+  min-height: 0;
+  padding: 14px 18px 18px;
   -webkit-app-region: no-drag;
   position: relative;
 }
@@ -1791,120 +2016,12 @@ body {
 }
 
 .layout {
-  height: 100%;
-  display: flex;
-  gap: 12px;
-}
-
-.sidebar {
-  width: 220px;
-  min-width: 220px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.sidebar-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.sidebar-add {
-  width: 30px;
-  height: 30px;
-  border-radius: 10px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  cursor: pointer;
-  color: var(--text-primary);
-}
-
-.sidebar-add:hover {
-  background: var(--bg-card);
-}
-
-.sidebar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow: auto;
-  padding-right: 2px;
-}
-
-.sidebar-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 12px;
-  border: 1px solid transparent;
-  background: transparent;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 13px;
-  text-align: left;
-}
-
-.sidebar-item:hover {
-  background: var(--bg-surface);
-  border-color: var(--border-color);
-}
-
-.sidebar-item.active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.28);
-}
-
-.sidebar-icon {
-  width: 18px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-}
-
-.sidebar-text {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.sidebar-sep {
-  height: 1px;
-  background: var(--border-color);
-  margin: 4px 2px;
-}
-
-.pinboard-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-}
-
-@media (prefers-color-scheme: dark) {
-  .pinboard-dot {
-    border: 1px solid rgba(255, 255, 255, 0.12);
-  }
-}
-
-.pinboard-dot.small {
-  width: 10px;
-  height: 10px;
-  border-radius: 3px;
 }
 
 .main-panel {
@@ -1915,45 +2032,10 @@ body {
   overflow: hidden;
   min-height: 0;
   position: relative;
+}
+
+.main-panel.with-selection-bar {
   padding-bottom: 58px;
-}
-
-.filters {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-
-.chips {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  overflow: auto;
-  padding-bottom: 2px;
-}
-
-.chip {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.chip:hover {
-  background: var(--bg-card);
-}
-
-.chip.active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.28);
-  color: var(--text-primary);
 }
 
 .filter-btn {
@@ -1974,7 +2056,7 @@ body {
 .filter-popover {
   position: absolute;
   right: 0;
-  top: 36px;
+  top: calc(100% + 10px);
   width: 320px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
@@ -2060,7 +2142,9 @@ body {
 
 .empty-state {
   text-align: center;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2078,7 +2162,9 @@ body {
 }
 
 .loading-state {
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2106,24 +2192,36 @@ body {
   color: var(--text-secondary);
 }
 
-.cards {
+.cards-viewport {
   flex: 1;
   min-height: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+}
+
+.cards-viewport::-webkit-scrollbar {
+  display: none;
+}
+
+.cards {
   display: flex;
   align-items: stretch;
   gap: 12px;
-  overflow-x: auto;
-  overflow-y: hidden;
+  width: max-content;
+  min-width: 100%;
   padding-bottom: 8px;
-  scroll-snap-type: x mandatory;
 }
 
 .card {
   width: 260px;
   min-width: 260px;
-  height: 228px;
-  min-height: 228px;
-  max-height: 228px;
+  height: 248px;
+  min-height: 248px;
+  max-height: 248px;
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 16px;
@@ -2132,7 +2230,6 @@ body {
   flex-direction: column;
   gap: 10px;
   cursor: pointer;
-  scroll-snap-align: start;
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.04);
 }
 
@@ -2140,9 +2237,22 @@ body {
   border-color: rgba(0, 122, 255, 0.3);
 }
 
+.card.active {
+  border-color: rgba(0, 122, 255, 0.8);
+  box-shadow:
+    0 0 0 4px rgba(0, 122, 255, 0.22),
+    0 12px 24px rgba(0, 122, 255, 0.12);
+  transform: translateY(-2px);
+}
+
 .card.selected {
-  border-color: rgba(0, 122, 255, 0.65);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.18);
+  background: color-mix(in srgb, var(--bg-card) 88%, rgba(0, 122, 255, 0.12));
+}
+
+.card.active.selected {
+  box-shadow:
+    0 0 0 4px rgba(0, 122, 255, 0.26),
+    0 12px 24px rgba(0, 122, 255, 0.14);
 }
 
 .card-top {
@@ -2179,12 +2289,11 @@ body {
   white-space: pre-wrap;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 6;
+  -webkit-line-clamp: 7;
   -webkit-box-orient: vertical;
 }
 
-.text-preview mark,
-.pin-title mark {
+.text-preview mark {
   background: rgba(0, 122, 255, 0.22);
   color: inherit;
   padding: 0 2px;
@@ -2193,7 +2302,7 @@ body {
 
 .image-box {
   width: 100%;
-  height: 118px;
+  height: 136px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
@@ -2211,7 +2320,7 @@ body {
 
 .color-box {
   width: 100%;
-  height: 118px;
+  height: 136px;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   display: flex;
@@ -2395,59 +2504,6 @@ body {
   color: var(--danger-color);
 }
 
-.sel-popover {
-  position: absolute;
-  right: 12px;
-  bottom: 50px;
-  width: 260px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  padding: 8px;
-}
-
-.sel-item {
-  width: 100%;
-  text-align: left;
-  border: none;
-  background: transparent;
-  padding: 10px 10px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sel-item:hover {
-  background: var(--bg-surface);
-}
-
-.submenu {
-  margin: 6px 6px 2px;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--bg-surface);
-}
-
-.submenu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border-radius: 0;
-}
-
-.pinboard-view {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 .stack-header {
   display: flex;
   align-items: center;
@@ -2577,90 +2633,6 @@ body {
 }
 
 .stack-remove:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
-}
-
-.pinboard-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin: 2px 2px 10px;
-}
-
-.pinboard-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.pinboard-count {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.pin-items {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-right: 2px;
-}
-
-.pin-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 12px;
-  border-radius: 16px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  cursor: pointer;
-}
-
-.pin-row:hover {
-  border-color: rgba(0, 122, 255, 0.3);
-}
-
-.pin-row.selected {
-  border-color: rgba(0, 122, 255, 0.65);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
-}
-
-.pin-index {
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 122, 255, 0.18);
-  border: 1px solid var(--border-color);
-  font-weight: 700;
-}
-
-.pin-title {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.pin-remove {
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.pin-remove:hover {
   background: var(--bg-card);
   color: var(--text-primary);
 }

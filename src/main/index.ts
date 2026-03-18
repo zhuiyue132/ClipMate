@@ -2,7 +2,13 @@ import { app, BrowserWindow, globalShortcut, Menu, Tray, nativeImage } from 'ele
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { join } from 'path'
 import { initDatabase, closeDatabase, getDatabase } from './database'
-import { createMainWindow, createSettingsWindow, getMainWindow, toggleMainWindow } from './windows'
+import {
+  createMainWindow,
+  createSettingsWindow,
+  getMainWindow,
+  hideMainWindow,
+  showMainWindow
+} from './windows'
 import { setupIpcHandlers } from './ipc'
 import {
   captureClipboardBeforePanelShow,
@@ -16,7 +22,7 @@ import {
 import { getFrontmostAppInfo } from './system/frontmostApp'
 import { startOcrWorker, stopOcrWorker } from './ocr'
 import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
-import type { ClipItem, PanelSnapshot, Pinboard, SourceAppSummary } from '../shared/types'
+import type { ClipItem, PanelSnapshot, SourceAppSummary } from '../shared/types'
 
 let tray: Tray | null = null
 let pendingShowRequestId = 0
@@ -41,15 +47,10 @@ function buildPanelSnapshot(): PanelSnapshot {
       `
     )
     .all() as SourceAppSummary[]
-  const pinboards = db
-    .prepare('SELECT * FROM pinboards ORDER BY sort_order ASC')
-    .all() as Pinboard[]
-
   return {
     paused: isClipboardPaused(),
     historyItems,
     sourceApps,
-    pinboards,
     pasteStackState: getPasteStackState()
   }
 }
@@ -62,9 +63,7 @@ async function showMainWindowFromCurrentApp(): Promise<void> {
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
   win.webContents.send('window:panelPreparing', requestId)
-  if (!win.isVisible()) {
-    toggleMainWindow()
-  }
+  showMainWindow()
 
   win.webContents.send('window:preparePanelShow', requestId, buildPanelSnapshot())
 
@@ -83,7 +82,7 @@ function toggleMainWindowFromCurrentApp(): void {
 
   if (win.isVisible()) {
     pendingShowRequestId += 1
-    win.hide()
+    hideMainWindow()
     return
   }
 

@@ -21,7 +21,6 @@ export interface SearchFilters {
   sourceApp?: string | null
   dateFrom?: number | null
   dateTo?: number | null
-  pinboardId?: string | null
   limit?: number
   offset?: number
 }
@@ -36,7 +35,6 @@ export interface PanelSnapshot {
   paused: boolean
   historyItems: ClipItem[]
   sourceApps: SourceAppSummary[]
-  pinboards: Pinboard[]
   pasteStackState: PasteStackState
 }
 
@@ -54,20 +52,6 @@ export interface PasteStackEntry {
 export interface PasteStackState {
   enabled: boolean
   entries: PasteStackEntry[]
-}
-
-export interface Pinboard {
-  id: string
-  name: string
-  color: string
-  sort_order: number
-  created_at: number
-}
-
-export interface PinboardItem {
-  pinboard_id: string
-  item_id: string
-  sort_order: number
 }
 
 export interface IpcApi {
@@ -105,17 +89,6 @@ export interface IpcApi {
   reorderPasteStack: (entryIds: string[]) => Promise<void>
   pastePasteStack: () => Promise<void>
   onPasteStackChanged: (callback: () => void) => () => void
-
-  // Pinboard
-  getPinboards: () => Promise<Pinboard[]>
-  createPinboard: (name: string, color: string) => Promise<Pinboard>
-  deletePinboard: (id: string) => Promise<void>
-  renamePinboard: (id: string, name: string) => Promise<void>
-  getPinboardItems: (pinboardId: string) => Promise<ClipItem[]>
-  addItemToPinboard: (pinboardId: string, itemId: string) => Promise<void>
-  addItemsToPinboard: (pinboardId: string, itemIds: string[]) => Promise<void>
-  removeItemFromPinboard: (pinboardId: string, itemId: string) => Promise<void>
-  reorderPinboardItems: (pinboardId: string, itemIds: string[]) => Promise<void>
 
   // Window
   hideWindow: () => void

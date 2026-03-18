@@ -1,7 +1,6 @@
 import Database from 'better-sqlite3'
 import path from 'path'
 import { app } from 'electron'
-import { randomUUID } from 'node:crypto'
 
 let db: Database.Database | null = null
 
@@ -18,11 +17,11 @@ export function initDatabase(): Database.Database {
 
   // 开启 WAL 模式以提升并发性能
   db.pragma('journal_mode = WAL')
-  // 让外键约束生效（用于 pinboard_items 的级联删除等）
+  // 保持外键约束开启，兼容其他未来表关系
   db.pragma('foreign_keys = ON')
 
   createTables(db)
-  seedDefaults(db)
+  cleanupLegacyPinboardData(db)
   return db
 }
 
@@ -48,34 +47,18 @@ function createTables(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_clip_items_created_at ON clip_items(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_clip_items_type ON clip_items(type);
     CREATE INDEX IF NOT EXISTS idx_clip_items_source_app ON clip_items(source_app);
-
-    CREATE TABLE IF NOT EXISTS pinboards (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      color TEXT NOT NULL DEFAULT '#007AFF',
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS pinboard_items (
-      pinboard_id TEXT NOT NULL,
-      item_id TEXT NOT NULL,
-      sort_order INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (pinboard_id, item_id),
-      FOREIGN KEY (pinboard_id) REFERENCES pinboards(id) ON DELETE CASCADE,
-      FOREIGN KEY (item_id) REFERENCES clip_items(id) ON DELETE CASCADE
-    );
   `)
 }
 
-function seedDefaults(db: Database.Database): void {
-  const row = db.prepare('SELECT COUNT(1) as count FROM pinboards').get() as { count: number }
-  if (row.count > 0) return
-
-  const now = Date.now()
-  db.prepare(
-    'INSERT INTO pinboards (id, name, color, sort_order, created_at) VALUES (?, ?, ?, ?, ?)'
-  ).run(randomUUID(), '收藏夹', '#007AFF', 0, now)
+function cleanupLegacyPinboardData(db: Database.Database): void {
+  const tx = db.transaction(() => {
+    db.exec(`
+      DROP TABLE IF EXISTS pinboard_items;
+      DROP TABLE IF EXISTS pinboards;
+    `)
+    db.prepare('UPDATE clip_items SET is_pinned = 0 WHERE is_pinned != 0').run()
+  })
+  tx()
 }
 
 export function getDatabase(): Database.Database {

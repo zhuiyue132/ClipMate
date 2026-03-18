@@ -87,22 +87,94 @@ function normalizeHexColor(text: string): string | null {
 }
 
 function extractFileUrlsFromBuffer(buffer: Buffer): string[] {
-  const text = buffer.toString('utf8')
-  const matches = text.match(/file:\/\/[^\s\0]+/g) || []
-  return matches
-    .map((m) => m.replace(/\0+$/, ''))
-    .map((m) => {
-      try {
-        return fileURLToPath(m)
-      } catch {
-        return null
-      }
-    })
-    .filter((v): v is string => Boolean(v))
+  return decodeClipboardBuffer(buffer).flatMap(extractFilePathsFromText)
 }
 
-function readFilePathsFromClipboard(): string[] {
-  const formats = clipboard.availableFormats()
+function decodeClipboardBuffer(buffer: Buffer): string[] {
+  const decoded = new Set<string>()
+
+  const utf8 = buffer.toString('utf8')
+  if (utf8.replace(/\0/g, '').trim()) {
+    decoded.add(utf8)
+  }
+
+  const utf16le = buffer.toString('utf16le')
+  if (utf16le.replace(/\0/g, '').trim()) {
+    decoded.add(utf16le)
+  }
+
+  if (buffer.length >= 2 && buffer.length % 2 === 0) {
+    const swapped = Buffer.from(buffer)
+    for (let i = 0; i < swapped.length; i += 2) {
+      const first = swapped[i]
+      swapped[i] = swapped[i + 1]
+      swapped[i + 1] = first
+    }
+    const utf16be = swapped.toString('utf16le')
+    if (utf16be.replace(/\0/g, '').trim()) {
+      decoded.add(utf16be)
+    }
+  }
+
+  return Array.from(decoded)
+}
+
+function decodeXmlEntities(value: string): string {
+  return value
+    .replaceAll('&amp;', '&')
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'")
+}
+
+function normalizeClipboardPathCandidate(value: string): string | null {
+  const candidate = value.trim().replace(/\0+$/g, '')
+  if (!candidate) return null
+
+  if (candidate.startsWith('file://')) {
+    try {
+      return fileURLToPath(candidate)
+    } catch {
+      return null
+    }
+  }
+
+  if (candidate.startsWith('/')) {
+    return candidate
+  }
+
+  return null
+}
+
+function extractFilePathsFromText(text: string): string[] {
+  const candidates: string[] = []
+  const normalizedText = text.replace(/\0+/g, '\n')
+  const fileUrlMatches = normalizedText.match(/file:\/\/[^\s"'<>]+/g) || []
+  candidates.push(...fileUrlMatches)
+
+  const plistStringMatches = normalizedText.matchAll(/<string>([\s\S]*?)<\/string>/g)
+  for (const match of plistStringMatches) {
+    const decoded = decodeXmlEntities(match[1])
+    candidates.push(decoded)
+  }
+
+  candidates.push(...normalizedText.split(/[\r\n]+/))
+
+  return Array.from(
+    new Set(
+      candidates
+        .map(normalizeClipboardPathCandidate)
+        .filter((candidate): candidate is string => Boolean(candidate))
+    )
+  )
+}
+
+function hasNativeFilePayload(formats: string[]): boolean {
+  return formats.includes('public.file-url') || formats.includes('NSFilenamesPboardType')
+}
+
+function readFilePathsFromClipboard(formats = clipboard.availableFormats()): string[] {
   const candidates = ['public.file-url', 'NSFilenamesPboardType', 'public.url', 'text/uri-list']
   for (const format of candidates) {
     if (!formats.includes(format)) continue
@@ -114,10 +186,29 @@ function readFilePathsFromClipboard(): string[] {
       // ignore
     }
   }
+
+  const textPaths = extractFilePathsFromText(clipboard.readText())
+  if (textPaths.length > 0) return textPaths
+
   return []
 }
 
 function readClipboardContent(): ClipboardContent | null {
+  const formats = clipboard.availableFormats()
+  const filePaths = readFilePathsFromClipboard(formats)
+  if (filePaths.length > 0) {
+    const plain = filePaths.join('\n')
+    return {
+      type: 'file',
+      content: JSON.stringify({ paths: filePaths }),
+      plain_text: plain
+    }
+  }
+
+  if (hasNativeFilePayload(formats)) {
+    return null
+  }
+
   const image = clipboard.readImage()
   if (!image.isEmpty()) {
     const png = image.toPNG()
@@ -127,16 +218,6 @@ function readClipboardContent(): ClipboardContent | null {
       content: png.toString('base64'),
       plain_text: null,
       thumbnail: thumb.length > 0 ? thumb : null
-    }
-  }
-
-  const filePaths = readFilePathsFromClipboard()
-  if (filePaths.length > 0) {
-    const plain = filePaths.join('\n')
-    return {
-      type: 'file',
-      content: JSON.stringify({ paths: filePaths }),
-      plain_text: plain
     }
   }
 
@@ -168,6 +249,7 @@ export class ClipboardWatcher {
   private paused = false
   private lastSeenSignature: string | null = null
   private lastSaved: { id: string; signature: string } | null = null
+  private pendingSignature: string | null = null
   private ignoreUntil = 0
 
   constructor(
@@ -234,7 +316,10 @@ export class ClipboardWatcher {
     if (Date.now() < this.ignoreUntil) return
 
     const content = readClipboardContent()
-    if (!content) return
+    if (!content) {
+      this.pendingSignature = null
+      return
+    }
 
     const sig = signatureFor({
       type: content.type,
@@ -242,7 +327,17 @@ export class ClipboardWatcher {
       plain_text: content.plain_text
     })
 
-    if (sig === this.lastSeenSignature) return
+    if (sig === this.lastSeenSignature) {
+      this.pendingSignature = null
+      return
+    }
+
+    if (sig !== this.pendingSignature) {
+      this.pendingSignature = sig
+      return
+    }
+
+    this.pendingSignature = null
     this.lastSeenSignature = sig
 
     if (this.paused) return
