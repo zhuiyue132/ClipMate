@@ -1,19 +1,18 @@
-import { clipboard, nativeImage } from 'electron'
-import { randomUUID } from 'node:crypto'
-import { getDatabase } from '../database'
+import { getClipItemById, getLatestClipItemRecord } from '../database/clipItems'
 import { getMainWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
-import type { ClipItem, PasteStackState } from '../../shared/types'
-import { ClipboardWatcher, createClipboardSignature, getClipboardSignature } from './watcher'
+import type { PasteStackState } from '../../shared/types'
+import { createClipboardSignature, getClipboardSignature } from './content'
+import { writeClipItemToClipboard } from './io'
+import { PasteStackManager } from './pasteStack'
+import { ClipboardWatcher } from './watcher'
 
 let watcher: ClipboardWatcher | null = null
 let lastActiveApp: FrontmostAppInfo | null = null
-let stackEnabled = false
-let stackQueue: Array<{ entryId: string; itemId: string; createdAt: number }> = []
-let stackPasting = false
 let burstIntervalId: NodeJS.Timeout | null = null
 let burstTimeoutId: NodeJS.Timeout | null = null
 let burstResolve: (() => void) | null = null
+const pasteStack = new PasteStackManager(notifyStackChanged)
 
 function notifyStackChanged(): void {
   getMainWindow()?.webContents.send('clip:stackChanged')
@@ -38,10 +37,7 @@ export function startClipboardWatcher(): void {
   if (watcher) return
   watcher = new ClipboardWatcher(220, ({ id }) => {
     getMainWindow()?.webContents.send('clip:itemsChanged')
-    if (stackEnabled) {
-      stackQueue.push({ entryId: randomUUID(), itemId: id, createdAt: Date.now() })
-      notifyStackChanged()
-    }
+    pasteStack.enqueue(id)
   })
   watcher.start()
 }
@@ -83,27 +79,9 @@ export function captureClipboardBurst(durationMs = 450, intervalMs = 50): Promis
   })
 }
 
-function getLatestClipboardMarker(): {
-  id: string | null
-  createdAt: number | null
-  signature: string | null
-} {
-  const db = getDatabase()
-  const latest = db
-    .prepare(
-      'SELECT id, type, content, plain_text, created_at FROM clip_items ORDER BY created_at DESC LIMIT 1'
-    )
-    .get() as Pick<ClipItem, 'id' | 'type' | 'content' | 'plain_text' | 'created_at'> | undefined
-
-  if (!latest) {
-    return { id: null, createdAt: null, signature: null }
-  }
-
-  return {
-    id: latest.id,
-    createdAt: latest.created_at,
-    signature: createClipboardSignature(latest)
-  }
+function getLatestClipboardSignature(): string | null {
+  const latest = getLatestClipItemRecord()
+  return latest ? createClipboardSignature(latest) : null
 }
 
 export async function captureClipboardBeforePanelShow(): Promise<void> {
@@ -116,8 +94,8 @@ export async function captureClipboardBeforePanelShow(): Promise<void> {
   watcher.captureNow()
 
   let lastSignature = getClipboardSignature()
-  let latest = getLatestClipboardMarker()
-  if (lastSignature === latest.signature) {
+  let latestSignature = getLatestClipboardSignature()
+  if (lastSignature === latestSignature) {
     return
   }
 
@@ -137,9 +115,9 @@ export async function captureClipboardBeforePanelShow(): Promise<void> {
       lastSignatureChangedAt = Date.now()
     }
 
-    latest = getLatestClipboardMarker()
+    latestSignature = getLatestClipboardSignature()
     const settledFor = Date.now() - lastSignatureChangedAt
-    const clipboardCaughtUp = currentSignature === latest.signature
+    const clipboardCaughtUp = currentSignature === latestSignature
 
     if (clipboardCaughtUp && settledFor >= settleMs) {
       return
@@ -156,55 +134,23 @@ export function recordLastActiveApp(app: FrontmostAppInfo): void {
 }
 
 export function getPasteStackState(): PasteStackState {
-  const ids = Array.from(new Set(stackQueue.map((e) => e.itemId)))
-  const itemsMap = new Map<string, ClipItem>()
-
-  if (ids.length > 0) {
-    const db = getDatabase()
-    const placeholders = ids.map(() => '?').join(', ')
-    const rows = db
-      .prepare(`SELECT * FROM clip_items WHERE id IN (${placeholders})`)
-      .all(...ids) as ClipItem[]
-    rows.forEach((row) => itemsMap.set(row.id, row))
-  }
-
-  return {
-    enabled: stackEnabled,
-    entries: stackQueue.map((entry) => ({
-      entry_id: entry.entryId,
-      item_id: entry.itemId,
-      item: itemsMap.get(entry.itemId) ?? null
-    }))
-  }
+  return pasteStack.getState()
 }
 
 export function setPasteStackEnabled(enabled: boolean): void {
-  stackEnabled = enabled
-  if (!stackEnabled) {
-    stackQueue = []
-  }
-  notifyStackChanged()
+  pasteStack.setEnabled(enabled)
 }
 
 export function clearPasteStack(): void {
-  stackQueue = []
-  notifyStackChanged()
+  pasteStack.clear()
 }
 
 export function removePasteStackEntry(entryId: string): void {
-  stackQueue = stackQueue.filter((e) => e.entryId !== entryId)
-  notifyStackChanged()
+  pasteStack.removeEntry(entryId)
 }
 
 export function reorderPasteStack(entryIds: string[]): void {
-  const map = new Map(stackQueue.map((e) => [e.entryId, e] as const))
-  const next: typeof stackQueue = []
-  for (const id of entryIds) {
-    const entry = map.get(id)
-    if (entry) next.push(entry)
-  }
-  stackQueue = next
-  notifyStackChanged()
+  pasteStack.reorder(entryIds)
 }
 
 function delay(ms: number): Promise<void> {
@@ -212,41 +158,23 @@ function delay(ms: number): Promise<void> {
 }
 
 export async function pastePasteStack(): Promise<void> {
-  if (stackPasting) return
-  stackPasting = true
-
-  try {
-    const entries = [...stackQueue]
-    if (entries.length === 0) return
-
-    // 先隐藏面板，避免按键落在自身窗口上
-    getMainWindow()?.hide()
-
-    if (lastActiveApp) {
-      activateApp(lastActiveApp)
-    }
-
-    for (const entry of entries) {
+  await pasteStack.pasteAll({
+    beforeStart: () => {
+      getMainWindow()?.hide()
+      if (lastActiveApp) {
+        activateApp(lastActiveApp)
+      }
+    },
+    pasteEntry: async (entry) => {
       const item = getClipItemById(entry.itemId)
-      if (!item) continue
+      if (!item) return
 
       writeClipItemToClipboard(item, { plainText: false })
       suppressNextClipboardCapture(1500)
       sendCmdVKeystroke()
       await delay(120)
     }
-
-    stackQueue = []
-    notifyStackChanged()
-  } finally {
-    stackPasting = false
-  }
-}
-
-function getClipItemById(id: string): ClipItem | null {
-  const db = getDatabase()
-  const row = db.prepare('SELECT * FROM clip_items WHERE id = ?').get(id) as ClipItem | undefined
-  return row ?? null
+  })
 }
 
 export function pasteClipItem(id: string, options?: { plainText?: boolean }): void {
@@ -271,23 +199,4 @@ export function copyClipItem(id: string, options?: { plainText?: boolean }): voi
   if (!item) return
   writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
   suppressNextClipboardCapture()
-}
-
-export function writeClipItemToClipboard(item: ClipItem, options: { plainText: boolean }): void {
-  if (item.type === 'image') {
-    const buf = Buffer.from(item.content, 'base64')
-    const img = nativeImage.createFromBuffer(buf)
-    clipboard.writeImage(img)
-    return
-  }
-
-  if (item.type === 'richtext' && !options.plainText) {
-    clipboard.write({
-      html: item.content,
-      text: item.plain_text ?? ''
-    })
-    return
-  }
-
-  clipboard.writeText(item.plain_text ?? item.content ?? '')
 }
