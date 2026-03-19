@@ -26,6 +26,7 @@ mac:
   extendInfo:
     NSAccessibilityUsageDescription: ClipMate 需要辅助功能权限来执行自动粘贴操作。
     NSScreenCaptureUsageDescription: ClipMate 需要屏幕录制权限以便在屏幕共享时自动隐藏。
+  x64ArchFiles: Contents/Resources/ocr/vision_ocr
   category: public.app-category.productivity
   hardenedRuntime: true
   gatekeeperAssess: false
