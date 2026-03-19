@@ -6,10 +6,14 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build-macos:
     runs-on: macos-14
     env:
+      GH_TOKEN: ${{ secrets.GH_TOKEN }}
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -20,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -29,8 +33,13 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Build and publish tagged release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run build:mac -- --publish always
+
       - name: Build universal macOS artifacts
-        run: npm run build:mac
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        run: npm run build:mac -- --publish never
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

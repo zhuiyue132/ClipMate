@@ -13,6 +13,7 @@
 ## 2. Required Environment Variables
 
 ```bash
+export GH_TOKEN="github-personal-access-token"
 export CSC_LINK="/path/to/developer-id.p12"
 export CSC_KEY_PASSWORD="your-cert-password"
 export APPLE_ID="you@example.com"
@@ -33,6 +34,16 @@ npm ci
 npm run typecheck
 npm run build:mac
 ```
+
+如果你是通过 GitHub Actions 在打 tag 时自动发布 GitHub Release，也需要在仓库
+`Settings -> Secrets and variables -> Actions` 中配置：
+
+- `GH_TOKEN`：具有当前仓库发布权限的 GitHub Personal Access Token
+- `CSC_LINK`
+- `CSC_KEY_PASSWORD`
+- `APPLE_ID`
+- `APPLE_APP_SPECIFIC_PASSWORD`
+- `APPLE_TEAM_ID`
 
 产物默认位于 `dist/`，包含：
 
@@ -57,6 +68,7 @@ npm run build:mac
 - 执行类型检查
 - 构建通用架构 `dmg/zip`
 - 在配置好 Apple 凭据时自动完成签名与公证
+- 在 tag 推送时自动发布 GitHub Release
 - 上传构建产物供后续发布
 
 ## 5. Auto Update Feed
