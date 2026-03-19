@@ -84,6 +84,8 @@ const previewLinkMeta = computed(() => {
   }
 })
 
+const previewTitle = computed(() => previewItem.value?.title?.trim() ?? '')
+
 function getFilePaths(item: ClipItem): string[] {
   if (item.type !== 'file') return []
   try {
@@ -225,6 +227,15 @@ async function saveRename(): Promise<void> {
   showToast('已保存名称')
 }
 
+function onRenameInputKeyDown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || isComposingEvent(event)) {
+    return
+  }
+
+  event.preventDefault()
+  void saveRename()
+}
+
 async function saveTextEdit(): Promise<void> {
   const item = previewItem.value
   if (!item) return
@@ -348,10 +359,28 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return tag === 'input' || tag === 'textarea' || Boolean(el.isContentEditable)
 }
 
-function onWindowKeyDown(event: KeyboardEvent): void {
-  const typing = isTypingTarget(event.target)
+function isTypingContext(target: EventTarget | null): boolean {
+  return isTypingTarget(target) || isTypingTarget(document.activeElement)
+}
 
-  if (event.key === 'Escape' || event.key === ' ') {
+function isComposingEvent(event: KeyboardEvent): boolean {
+  return event.isComposing || event.key === 'Process' || event.keyCode === 229
+}
+
+function onWindowKeyDown(event: KeyboardEvent): void {
+  if (isComposingEvent(event)) {
+    return
+  }
+
+  const typing = isTypingContext(event.target)
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closePreviewWindow()
+    return
+  }
+
+  if (!typing && event.key === ' ') {
     event.preventDefault()
     closePreviewWindow()
     return
@@ -420,14 +449,17 @@ onBeforeUnmount(() => {
           <div class="badge">
             {{ previewItem ? typeLabel(previewItem.type) : '预览' }}
           </div>
-          <div class="preview-sub">
-            {{
-              previewItem
-                ? `${previewItem.source_app_name || '未知来源'} · ${formatRelativeTime(
-                    previewItem.created_at
-                  )}`
-                : ''
-            }}
+          <div class="preview-meta">
+            <div v-if="previewTitle" class="preview-title">{{ previewTitle }}</div>
+            <div class="preview-sub">
+              {{
+                previewItem
+                  ? `${previewItem.source_app_name || '未知来源'} · ${formatRelativeTime(
+                      previewItem.created_at
+                    )}`
+                  : ''
+              }}
+            </div>
           </div>
         </div>
 
@@ -474,7 +506,12 @@ onBeforeUnmount(() => {
 
         <template v-else-if="previewItem">
           <div v-if="renameOpen" class="rename-row">
-            <input v-model="renameDraft" class="rename-input" placeholder="名称（可选）" />
+            <input
+              v-model="renameDraft"
+              class="rename-input"
+              placeholder="名称（可选）"
+              @keydown="onRenameInputKeyDown"
+            />
             <button class="primary-btn" @click="saveRename()">保存</button>
           </div>
 
@@ -569,9 +606,10 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="preview-footer">
-        <span class="hint">空格 / ESC 关闭</span>
+        <span class="hint">空格 / ESC 关闭（输入时除外）</span>
         <span v-if="editMode || linkEditMode" class="hint">⌘S 保存</span>
-        <span class="hint">回车直接粘贴</span>
+        <span v-if="renameOpen" class="hint">回车保存名称</span>
+        <span v-else-if="!editMode && !linkEditMode" class="hint">回车直接粘贴</span>
       </div>
     </div>
 
@@ -598,6 +636,23 @@ onBeforeUnmount(() => {
 
 .preview-window-standalone .preview-actions {
   -webkit-app-region: no-drag;
+}
+
+.preview-meta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .preview-toast {

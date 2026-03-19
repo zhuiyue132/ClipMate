@@ -490,8 +490,11 @@ function typeLabel(type: ClipItem['type']): string {
   }
 }
 
+function clipItemTitle(item: ClipItem): string {
+  return item.title?.trim() ?? ''
+}
+
 function previewText(item: ClipItem): string {
-  if (item.title) return item.title
   if (item.type === 'image') return '图片'
   if (item.type === 'file') {
     try {
@@ -695,7 +698,7 @@ async function removePasteStackEntryUi(entryId: string): Promise<void> {
 }
 
 function stackEntryTitle(entry: PasteStackEntry): string {
-  if (entry.item) return previewText(entry.item)
+  if (entry.item) return clipItemTitle(entry.item) || previewText(entry.item)
   return '(条目已删除)'
 }
 
@@ -1549,7 +1552,12 @@ onBeforeUnmount(() => {
                   @contextmenu="openClipContextMenu($event, item)"
                 >
                   <div class="card-top">
-                    <div class="badge">{{ typeLabel(item.type) }}</div>
+                    <div class="card-heading">
+                      <div class="badge">{{ typeLabel(item.type) }}</div>
+                      <div v-if="clipItemTitle(item)" class="card-title">
+                        {{ clipItemTitle(item) }}
+                      </div>
+                    </div>
                   </div>
 
                   <div class="card-body">
@@ -2290,6 +2298,15 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-width: 0;
+}
+
+.card-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .badge {
@@ -2306,6 +2323,18 @@ body {
     background 0.18s ease,
     border-color 0.18s ease,
     color 0.18s ease;
+}
+
+.card-title {
+  min-width: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.2;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .card-body {
