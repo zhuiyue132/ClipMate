@@ -53,6 +53,13 @@ import {
 let tray: Tray | null = null
 let pendingShowRequestId = 0
 
+function configureMacAppPresentation(): void {
+  if (process.platform !== 'darwin') return
+
+  app.setActivationPolicy('accessory')
+  app.dock?.hide()
+}
+
 function applyWindowContentProtection(window: BrowserWindow): void {
   window.setContentProtection(getSettings().privacy.hideOnScreenShare)
 }
@@ -162,10 +169,8 @@ app.whenReady().then(() => {
   // 设置 app user model id（macOS）
   electronApp.setAppUserModelId('com.clipmate.app')
 
-  // 隐藏 Dock 图标（纯菜单栏应用）
-  if (app.dock) {
-    app.dock.hide()
-  }
+  // 使用菜单栏应用激活策略，确保开发态也尽量贴近正式运行形态。
+  configureMacAppPresentation()
 
   // 开发环境优化
   app.on('browser-window-created', (_, window) => {
