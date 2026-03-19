@@ -94,9 +94,23 @@ export interface ShortcutSettings {
   quickPasteLatest: string
   pasteLatestPlainText: string
   togglePasteStack: string
+  pasteStackPaste: string
   togglePauseCapture: string
   focusSearch: string
-  newItem: string
+  newTextItem: string
+  newLinkItem: string
+}
+
+export type ScreenPermissionStatus =
+  | 'granted'
+  | 'denied'
+  | 'restricted'
+  | 'not-determined'
+  | 'unknown'
+
+export interface SystemPermissionSnapshot {
+  accessibility: boolean
+  screen: ScreenPermissionStatus
 }
 
 export interface SyncSettings {
@@ -179,6 +193,7 @@ export interface IpcApi {
   pasteClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
   pasteClipItemAsFile: (id: string) => Promise<void>
   copyClipItem: (id: string, options?: { plainText?: boolean }) => Promise<void>
+  copyClipItemsAsText: (ids: string[], separator?: string) => Promise<number>
   startImageDrag: (id: string) => void
   onClipItemsChanged: (callback: () => void) => () => void
   onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
@@ -189,6 +204,7 @@ export interface IpcApi {
   getPasteStackState: () => Promise<PasteStackState>
   setPasteStackEnabled: (enabled: boolean) => Promise<void>
   clearPasteStack: () => Promise<void>
+  enqueuePasteStackItems: (ids: string[]) => Promise<number>
   removePasteStackEntry: (entryId: string) => Promise<void>
   reorderPasteStack: (entryIds: string[]) => Promise<void>
   pastePasteStack: () => Promise<void>
@@ -205,6 +221,8 @@ export interface IpcApi {
   // System
   getAccessibilityPermission: () => Promise<boolean>
   requestAccessibilityPermission: () => void
+  getSystemPermissions: () => Promise<SystemPermissionSnapshot>
+  openPrivacySettings: (kind: 'accessibility' | 'screen') => Promise<void>
   getAppIcons: (targets: AppIconTarget[]) => Promise<Record<string, string | null>>
   quickLookFile: (path: string) => Promise<void>
 

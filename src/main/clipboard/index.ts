@@ -1,5 +1,5 @@
-import { Notification } from 'electron'
-import { getClipItemById, getLatestClipItemRecord } from '../database/clipItems'
+import { clipboard, Notification } from 'electron'
+import { getClipItemById, getClipItemsByIds, getLatestClipItemRecord } from '../database/clipItems'
 import { getMainWindow, syncStackDockWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { PasteStackState } from '../../shared/types'
@@ -212,6 +212,22 @@ export function clearPasteStack(): void {
   pasteStack.clear()
 }
 
+export function enqueuePasteStackItems(ids: string[]): number {
+  const orderedIds = Array.from(new Set((ids ?? []).filter((id): id is string => Boolean(id))))
+  if (orderedIds.length === 0) return 0
+
+  setPasteStackEnabled(true)
+  let added = 0
+  for (const id of orderedIds) {
+    if (getClipItemById(id)) {
+      pasteStack.enqueue(id)
+      added += 1
+    }
+  }
+
+  return added
+}
+
 export function removePasteStackEntry(entryId: string): void {
   pasteStack.removeEntry(entryId)
 }
@@ -305,6 +321,43 @@ export function copyClipItem(id: string, options?: { plainText?: boolean }): voi
   writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
   rememberWrittenClipItem(item)
   suppressNextClipboardCapture()
+}
+
+export function copyClipItemsAsText(ids: string[], separator = '\n\n'): number {
+  const orderedIds = Array.from(new Set((ids ?? []).filter((id): id is string => Boolean(id))))
+  if (orderedIds.length === 0) return 0
+
+  const items = getClipItemsByIds(orderedIds)
+  const textValueForItem = (item: NonNullable<ReturnType<typeof getClipItemById>>): string => {
+    if (item.type === 'file') {
+      try {
+        const parsed = JSON.parse(item.content) as { paths?: string[] }
+        return (parsed.paths ?? []).join('\n')
+      } catch {
+        return item.plain_text?.trim() || ''
+      }
+    }
+
+    if (item.type === 'image') {
+      return item.title?.trim() || item.ocr_text?.trim() || '[图片]'
+    }
+
+    return item.plain_text?.trim() || item.content?.trim() || ''
+  }
+
+  const values = orderedIds
+    .map((id) => items.get(id))
+    .filter((item): item is NonNullable<ReturnType<typeof getClipItemById>> => Boolean(item))
+    .map((item) => textValueForItem(item))
+    .filter(Boolean)
+  const text = values.join(separator)
+
+  if (!text) return 0
+
+  clipboard.writeText(text)
+  rememberCurrentClipboard()
+  suppressNextClipboardCapture()
+  return values.length
 }
 
 export function pasteClipItemAsFile(id: string): void {

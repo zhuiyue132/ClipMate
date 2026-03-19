@@ -6,6 +6,7 @@ import type {
   ShortcutAction,
   ShortcutRegistrationState,
   SourceAppSummary,
+  SystemPermissionSnapshot,
   SyncState,
   ThemePreference,
   UpdateState
@@ -26,9 +27,11 @@ const shortcutLabels: Array<{ key: ShortcutAction; label: string; hint: string }
   { key: 'quickPasteLatest', label: 'QuickPaste', hint: '最近一条直接粘贴' },
   { key: 'pasteLatestPlainText', label: '纯文本粘贴', hint: '最近一条纯文本粘贴' },
   { key: 'togglePasteStack', label: 'Stack 开关', hint: '全局快捷键' },
+  { key: 'pasteStackPaste', label: 'Stack 粘贴', hint: '启用 Stack 后的实际粘贴键' },
   { key: 'togglePauseCapture', label: '暂停收集', hint: '全局快捷键' },
   { key: 'focusSearch', label: '聚焦搜索', hint: '窗口内快捷键' },
-  { key: 'newItem', label: '新建条目', hint: '窗口内快捷键' }
+  { key: 'newTextItem', label: '新建文本', hint: '窗口内快捷键' },
+  { key: 'newLinkItem', label: '新建链接', hint: '窗口内快捷键' }
 ]
 
 const tab = ref<SettingsTab>('general')
@@ -41,6 +44,10 @@ const syncState = ref<SyncState>({
   path: null
 })
 const shortcutState = ref<ShortcutRegistrationState | null>(null)
+const systemPermissions = ref<SystemPermissionSnapshot>({
+  accessibility: false,
+  screen: 'unknown'
+})
 const sourceApps = ref<SourceAppSummary[]>([])
 const appVersion = ref('')
 const dbPath = ref('')
@@ -91,12 +98,14 @@ function applySnapshot(snapshot: SettingsSnapshot): void {
 }
 
 async function loadSnapshot(): Promise<void> {
-  const [snapshot, apps] = await Promise.all([
+  const [snapshot, apps, permissions] = await Promise.all([
     window.api.getSettingsSnapshot(),
-    window.api.getSourceApps()
+    window.api.getSourceApps(),
+    window.api.getSystemPermissions()
   ])
   applySnapshot(snapshot)
   sourceApps.value = apps
+  systemPermissions.value = permissions
 }
 
 async function persistSettings(message?: string): Promise<void> {
@@ -136,7 +145,50 @@ function shortcutStatusLabel(key: ShortcutAction): string {
   const status = shortcutState.value?.[key]
   if (!status) return '未加载'
   if (status.scope === 'local') return '窗口内'
+  if (key === 'pasteStackPaste' && !status.registered) return '条件注册'
   return status.registered ? '已注册' : '冲突/无权限'
+}
+
+function screenPermissionLabel(): string {
+  switch (systemPermissions.value.screen) {
+    case 'granted':
+      return '已授权'
+    case 'denied':
+      return '已拒绝'
+    case 'restricted':
+      return '受限'
+    case 'not-determined':
+      return '未决定'
+    default:
+      return '未知'
+  }
+}
+
+function permissionStateLabel(granted: boolean): string {
+  return granted ? '已授权' : '未授权'
+}
+
+function permissionPillClass(granted: boolean): string {
+  return granted ? 'ok' : 'warn'
+}
+
+async function refreshSystemPermissions(message?: string): Promise<void> {
+  systemPermissions.value = await window.api.getSystemPermissions()
+  if (message) {
+    showToast(message)
+  }
+}
+
+async function requestAccessibilityPermission(): Promise<void> {
+  window.api.requestAccessibilityPermission()
+  window.setTimeout(() => {
+    void refreshSystemPermissions('已触发辅助功能权限请求')
+  }, 900)
+}
+
+async function openPrivacySettings(kind: 'accessibility' | 'screen'): Promise<void> {
+  await window.api.openPrivacySettings(kind)
+  showToast('已打开系统设置')
 }
 
 async function toggleBooleanSetting(section: keyof AppSettings, key: string): Promise<void> {
@@ -293,7 +345,8 @@ onBeforeUnmount(() => {
                 :class="{
                   warn:
                     shortcutStatusLabel(item.key) !== '已注册' &&
-                    shortcutStatusLabel(item.key) !== '窗口内'
+                    shortcutStatusLabel(item.key) !== '窗口内' &&
+                    shortcutStatusLabel(item.key) !== '条件注册'
                 }"
               >
                 {{ shortcutStatusLabel(item.key) }}
@@ -303,6 +356,55 @@ onBeforeUnmount(() => {
         </template>
 
         <template v-else-if="tab === 'privacy'">
+          <section class="group-card">
+            <div class="group-title">系统权限</div>
+            <div class="permission-grid">
+              <div class="permission-card">
+                <div>
+                  <div class="setting-name">辅助功能</div>
+                  <div class="setting-hint">
+                    用于 Direct Paste、QuickPaste 与 Paste Stack 自动粘贴
+                  </div>
+                </div>
+                <span
+                  class="state-pill"
+                  :class="permissionPillClass(systemPermissions.accessibility)"
+                >
+                  {{ permissionStateLabel(systemPermissions.accessibility) }}
+                </span>
+                <div class="manual-row permission-actions">
+                  <button class="primary-btn" @click="requestAccessibilityPermission()">
+                    请求授权
+                  </button>
+                  <button class="ghost-btn" @click="openPrivacySettings('accessibility')">
+                    打开系统设置
+                  </button>
+                </div>
+              </div>
+
+              <div class="permission-card">
+                <div>
+                  <div class="setting-name">屏幕录制</div>
+                  <div class="setting-hint">用于检测共享/录屏权限状态，并配合窗口隐藏策略生效</div>
+                </div>
+                <span
+                  class="state-pill"
+                  :class="permissionPillClass(systemPermissions.screen === 'granted')"
+                >
+                  {{ screenPermissionLabel() }}
+                </span>
+                <div class="manual-row permission-actions">
+                  <button class="ghost-btn" @click="openPrivacySettings('screen')">
+                    打开系统设置
+                  </button>
+                  <button class="ghost-btn" @click="refreshSystemPermissions('已刷新权限状态')">
+                    重新检测
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <section class="group-card">
             <div class="group-title">保护策略</div>
             <div class="setting-row">
@@ -719,6 +821,11 @@ onBeforeUnmount(() => {
   border: 1px solid rgba(52, 199, 89, 0.24);
 }
 
+.state-pill.ok {
+  background: rgba(52, 199, 89, 0.14);
+  border-color: rgba(52, 199, 89, 0.24);
+}
+
 .state-pill.warn {
   background: rgba(255, 149, 0, 0.14);
   border-color: rgba(255, 149, 0, 0.22);
@@ -753,7 +860,8 @@ onBeforeUnmount(() => {
 
 .manual-row,
 .stats-grid,
-.chip-grid {
+.chip-grid,
+.permission-grid {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
@@ -763,18 +871,35 @@ onBeforeUnmount(() => {
   margin-bottom: 14px;
 }
 
+.permission-grid {
+  align-items: stretch;
+}
+
 .text-input {
   flex: 1;
   min-width: 220px;
 }
 
 .app-chip,
+.permission-card,
 .path-card,
 .stat-card {
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   border-radius: 16px;
   padding: 14px;
+}
+
+.permission-card {
+  flex: 1;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.permission-actions {
+  margin-bottom: 0;
 }
 
 .app-chip {

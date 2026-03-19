@@ -8,9 +8,10 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:ocr-helper": "node build/prepare-ocr-helper.mjs",
     "postinstall": "electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:mac": "npm run build && electron-builder --mac",
+    "build:unpack": "npm run build:ocr-helper && npm run build && electron-builder --dir",
+    "build:mac": "npm run build:ocr-helper && npm run build && electron-builder --mac",
     "preview": "electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",

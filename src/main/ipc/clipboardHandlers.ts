@@ -1,7 +1,9 @@
 import { ipcMain } from 'electron'
 import {
   clearPasteStack,
+  copyClipItemsAsText,
   copyClipItem,
+  enqueuePasteStackItems,
   getPasteStackState,
   isClipboardPaused,
   pasteClipItem,
@@ -37,6 +39,10 @@ export function registerClipboardIpcHandlers(): void {
     copyClipItem(id, options)
   })
 
+  ipcMain.handle('clip:copyItemsAsText', (_event, ids: string[], separator?: string) => {
+    return copyClipItemsAsText(ids, separator)
+  })
+
   ipcMain.handle('clip:pasteLatestItem', (_event, options?: { plainText?: boolean }) => {
     pasteLatestClipItem(options)
   })
@@ -51,6 +57,10 @@ export function registerClipboardIpcHandlers(): void {
 
   ipcMain.handle('clip:clearStack', () => {
     clearPasteStack()
+  })
+
+  ipcMain.handle('clip:enqueueStackItems', (_event, ids: string[]) => {
+    return enqueuePasteStackItems(ids)
   })
 
   ipcMain.handle('clip:removeStackEntry', (_event, entryId: string) => {

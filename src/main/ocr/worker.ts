@@ -1,6 +1,6 @@
 import { app } from 'electron'
 import { execFile, execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -19,6 +19,26 @@ function fileExists(path: string): boolean {
   } catch {
     return false
   }
+}
+
+function isExecutable(path: string): boolean {
+  try {
+    accessSync(path, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function findOcrHelperPath(): string | null {
+  const candidates = [
+    join(process.resourcesPath, 'ocr/vision_ocr'),
+    join(process.cwd(), 'build/generated-resources/ocr/vision_ocr'),
+    join(app.getAppPath(), 'build/generated-resources/ocr/vision_ocr'),
+    join(__dirname, '../../../build/generated-resources/ocr/vision_ocr')
+  ]
+
+  return candidates.find(isExecutable) ?? null
 }
 
 function findOcrScriptPath(): string | null {
@@ -42,6 +62,16 @@ function isSwiftAvailable(): boolean {
 }
 
 async function runVisionOcr(imagePath: string): Promise<string> {
+  const helperPath = findOcrHelperPath()
+  if (helperPath) {
+    const { stdout } = await execFileAsync(helperPath, [imagePath], {
+      timeout: 30_000,
+      maxBuffer: 5 * 1024 * 1024
+    })
+
+    return (stdout ?? '').trim()
+  }
+
   const scriptPath = findOcrScriptPath()
   if (!scriptPath) throw new Error('Vision OCR script not found')
 
@@ -105,7 +135,7 @@ async function tickOnce(): Promise<void> {
 
 export function startOcrWorker(): void {
   if (timer) return
-  enabled = isSwiftAvailable()
+  enabled = Boolean(findOcrHelperPath()) || isSwiftAvailable()
   if (!enabled) return
 
   timer = setInterval(() => {

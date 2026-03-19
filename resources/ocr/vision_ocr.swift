@@ -29,11 +29,10 @@ let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
 
 do {
   try handler.perform([request])
-  let observations = request.results as? [VNRecognizedTextObservation] ?? []
+  let observations = request.results ?? []
   let lines = observations.compactMap { $0.topCandidates(1).first?.string }
   print(lines.joined(separator: "\n"))
 } catch {
   fputs("OCR error: \(error)\\n", stderr)
   exit(4)
 }
-

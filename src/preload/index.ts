@@ -54,6 +54,8 @@ const api = {
     ipcRenderer.invoke('clip:pasteItemAsFile', id),
   copyClipItem: (id: string, options?: { plainText?: boolean }): Promise<void> =>
     ipcRenderer.invoke('clip:copyItem', id, options),
+  copyClipItemsAsText: (ids: string[], separator?: string): Promise<number> =>
+    ipcRenderer.invoke('clip:copyItemsAsText', ids, separator),
   startImageDrag: (id: string): void => ipcRenderer.send('clip:startImageDrag', id),
   onClipItemsChanged: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
@@ -85,6 +87,8 @@ const api = {
   setPasteStackEnabled: (enabled: boolean): Promise<void> =>
     ipcRenderer.invoke('clip:setStackEnabled', enabled),
   clearPasteStack: (): Promise<void> => ipcRenderer.invoke('clip:clearStack'),
+  enqueuePasteStackItems: (ids: string[]): Promise<number> =>
+    ipcRenderer.invoke('clip:enqueueStackItems', ids),
   removePasteStackEntry: (entryId: string): Promise<void> =>
     ipcRenderer.invoke('clip:removeStackEntry', entryId),
   reorderPasteStack: (entryIds: string[]): Promise<void> =>
@@ -113,6 +117,9 @@ const api = {
     ipcRenderer.invoke('system:getAccessibilityPermission'),
   requestAccessibilityPermission: (): void =>
     ipcRenderer.send('system:requestAccessibilityPermission'),
+  getSystemPermissions: () => ipcRenderer.invoke('system:getPermissions'),
+  openPrivacySettings: (kind: 'accessibility' | 'screen'): Promise<void> =>
+    ipcRenderer.invoke('system:openPrivacySettings', kind),
   getAppIcons: (targets: AppIconTarget[]): Promise<Record<string, string | null>> =>
     ipcRenderer.invoke('system:getAppIcons', targets),
   quickLookFile: (filePath: string): Promise<void> =>

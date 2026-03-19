@@ -58,6 +58,12 @@ const selectedIds = ref<string[]>([])
 const anchorId = ref<string | null>(null)
 const hoveredId = ref<string | null>(null)
 const selectedSet = computed(() => new Set(selectedIds.value))
+const orderedSelectedIds = computed(() =>
+  visibleItems.value.filter((item) => selectedSet.value.has(item.id)).map((item) => item.id)
+)
+const inlineEditingId = ref<string | null>(null)
+const inlineEditDraft = ref('')
+const inlineEditSaving = ref(false)
 
 const createOpen = ref(false)
 const createType = ref<'text' | 'link'>('text')
@@ -486,7 +492,16 @@ function clipItemTitle(item: ClipItem): string {
   return item.title?.trim() ?? ''
 }
 
-function previewText(item: ClipItem): string {
+function parseLinkMeta(item: ClipItem): { title?: string; description?: string } | null {
+  if (item.type !== 'link' || !item.link_meta) return null
+  try {
+    return JSON.parse(item.link_meta) as { title?: string; description?: string }
+  } catch {
+    return null
+  }
+}
+
+function previewSourceText(item: ClipItem): string {
   if (item.type === 'image') return '图片'
   if (item.type === 'file') {
     try {
@@ -497,15 +512,84 @@ function previewText(item: ClipItem): string {
       return item.plain_text || '文件'
     }
   }
-  if (item.type === 'link' && item.link_meta) {
-    try {
-      const meta = JSON.parse(item.link_meta) as { title?: string }
-      if (meta?.title) return meta.title
-    } catch {
-      // ignore
-    }
+
+  const meta = parseLinkMeta(item)
+  if (item.type === 'link' && meta?.title) {
+    return meta.title
   }
-  return (item.plain_text || item.content || '').slice(0, 80)
+
+  return item.plain_text || item.content || ''
+}
+
+function previewText(item: ClipItem): string {
+  return previewSourceText(item).slice(0, 80)
+}
+
+function includesSearchQuery(text: string | null | undefined): boolean {
+  const needle = trimmedSearch.value.toLowerCase()
+  if (!needle) return false
+  return (text ?? '').toLowerCase().includes(needle)
+}
+
+function searchSnippet(text: string, radius = 44): string {
+  const source = (text ?? '').replace(/\s+/g, ' ').trim()
+  if (!source) return ''
+
+  const needle = trimmedSearch.value.toLowerCase()
+  if (!needle) return source.slice(0, 80)
+
+  const lower = source.toLowerCase()
+  const idx = lower.indexOf(needle)
+  if (idx === -1) return source.slice(0, 80)
+
+  const start = Math.max(0, idx - radius)
+  const end = Math.min(source.length, idx + needle.length + radius)
+  const prefix = start > 0 ? '…' : ''
+  const suffix = end < source.length ? '…' : ''
+  return `${prefix}${source.slice(start, end)}${suffix}`
+}
+
+function cardPreviewHtml(item: ClipItem): string {
+  const source = hasRemoteSearchQuery.value
+    ? searchSnippet(previewSourceText(item), 52)
+    : previewText(item)
+  return highlight(source)
+}
+
+function cardSearchContextLines(
+  item: ClipItem
+): Array<{ key: string; label: string; html: string }> {
+  if (!hasRemoteSearchQuery.value) return []
+
+  const lines: Array<{ key: string; label: string; html: string }> = []
+  const meta = parseLinkMeta(item)
+  const primarySource = previewSourceText(item)
+
+  if (item.ocr_text && includesSearchQuery(item.ocr_text)) {
+    lines.push({
+      key: `${item.id}:ocr`,
+      label: 'OCR',
+      html: highlight(searchSnippet(item.ocr_text, 36))
+    })
+  }
+
+  if (meta?.description && includesSearchQuery(meta.description)) {
+    lines.push({
+      key: `${item.id}:meta-description`,
+      label: '描述',
+      html: highlight(searchSnippet(meta.description, 36))
+    })
+  }
+
+  if (item.type === 'link' && item.content !== primarySource && includesSearchQuery(item.content)) {
+    lines.push({
+      key: `${item.id}:url`,
+      label: 'URL',
+      html: highlight(searchSnippet(item.content, 32))
+    })
+  }
+
+  return lines.slice(0, 2)
 }
 
 function appIconKey(target: AppIconTarget): string {
@@ -608,6 +692,63 @@ function imageSrc(item: ClipItem): string | null {
   return `data:image/png;base64,${item.content}`
 }
 
+function canInlineEdit(item: ClipItem): boolean {
+  return item.type === 'text' || item.type === 'richtext'
+}
+
+function isInlineEditing(item: ClipItem): boolean {
+  return inlineEditingId.value === item.id
+}
+
+function beginInlineEdit(item: ClipItem): void {
+  if (!canInlineEdit(item)) return
+  closeAllMenus()
+  clearSelection()
+  setActiveCard(item.id)
+  inlineEditingId.value = item.id
+  inlineEditDraft.value = item.plain_text ?? item.content ?? ''
+}
+
+function cancelInlineEdit(): void {
+  inlineEditingId.value = null
+  inlineEditDraft.value = ''
+  inlineEditSaving.value = false
+}
+
+async function saveInlineEdit(): Promise<void> {
+  const itemId = inlineEditingId.value
+  if (!itemId) return
+
+  inlineEditSaving.value = true
+  try {
+    await window.api.updateClipItemText(itemId, inlineEditDraft.value)
+    await refreshAfterMutation()
+    setActiveCard(itemId)
+    cancelInlineEdit()
+    showToast('已在列表中保存文本')
+  } finally {
+    inlineEditSaving.value = false
+  }
+}
+
+function onInlineEditorKeyDown(event: KeyboardEvent): void {
+  event.stopPropagation()
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    cancelInlineEdit()
+    return
+  }
+
+  if (
+    (event.metaKey || event.ctrlKey) &&
+    (event.key === 'Enter' || event.key.toLowerCase() === 's')
+  ) {
+    event.preventDefault()
+    void saveInlineEdit()
+  }
+}
+
 async function refreshHistoryItems(): Promise<void> {
   loading.value = true
   try {
@@ -654,6 +795,7 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   customTo.value = ''
   searchResults.value = null
   clearSelection()
+  cancelInlineEdit()
   closeAllMenus()
   void nextTick(() => {
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
@@ -849,6 +991,11 @@ async function onCardClick(item: ClipItem): Promise<void> {
 }
 
 function onItemClick(ev: MouseEvent, item: ClipItem): void {
+  if (isInlineEditing(item)) return
+  if (inlineEditingId.value && inlineEditingId.value !== item.id) {
+    cancelInlineEdit()
+  }
+
   if (ev.shiftKey) {
     selectRange(item.id)
     return
@@ -884,8 +1031,31 @@ function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
 
 async function openPreviewById(itemId: string): Promise<void> {
   setActiveCard(itemId)
+  cancelInlineEdit()
   closeAllMenus()
   window.api.showPreview(itemId)
+}
+
+async function bulkCopyAsText(): Promise<void> {
+  const ids = orderedSelectedIds.value
+  if (ids.length === 0) return
+
+  const copied = await window.api.copyClipItemsAsText(ids)
+  if (copied === 0) {
+    showToast('所选条目没有可复制的文本内容')
+    return
+  }
+
+  showToast(`已复制 ${copied} 项文本`)
+}
+
+async function bulkAddToPasteStack(): Promise<void> {
+  const ids = orderedSelectedIds.value
+  if (ids.length === 0) return
+
+  const added = await window.api.enqueuePasteStackItems(ids)
+  await refreshPasteStack()
+  showToast(added > 0 ? `已将 ${added} 项加入 Paste Stack` : '没有可加入的条目')
 }
 
 function onItemDragStart(event: DragEvent, item: ClipItem): void {
@@ -900,6 +1070,7 @@ function onItemDragStart(event: DragEvent, item: ClipItem): void {
 
 function openCreateDialog(type: 'text' | 'link' = 'text'): void {
   closeAllMenus()
+  cancelInlineEdit()
   createOpen.value = true
   createType.value = type
   createTitle.value = ''
@@ -998,6 +1169,9 @@ function clearPanelPreparingTimer(): void {
 
 watch(search, () => {
   clearSelection()
+  if (inlineEditingId.value) {
+    cancelInlineEdit()
+  }
   if (!hasRemoteSearchQuery.value) {
     resetRemoteSearchState()
     return
@@ -1007,6 +1181,9 @@ watch(search, () => {
 
 watch([typeChip, sourceAppFilter, datePreset, customFrom, customTo], () => {
   clearSelection()
+  if (inlineEditingId.value) {
+    cancelInlineEdit()
+  }
   if (!hasRemoteSearchQuery.value) {
     resetRemoteSearchState()
     return
@@ -1029,6 +1206,9 @@ watch([historyItems, typeChip], async () => {
 watch(
   visibleItems,
   (items) => {
+    if (inlineEditingId.value && !items.some((item) => item.id === inlineEditingId.value)) {
+      cancelInlineEdit()
+    }
     if (items.length === 0) {
       activeCardId.value = null
     } else if (!activeCardId.value || !items.some((item) => item.id === activeCardId.value)) {
@@ -1079,9 +1259,15 @@ function onWindowKeyDown(e: KeyboardEvent): void {
     return
   }
 
-  if (shortcuts?.newItem && matchesAccelerator(e, shortcuts.newItem)) {
+  if (shortcuts?.newTextItem && matchesAccelerator(e, shortcuts.newTextItem)) {
     e.preventDefault()
     openCreateDialog('text')
+    return
+  }
+
+  if (shortcuts?.newLinkItem && matchesAccelerator(e, shortcuts.newLinkItem)) {
+    e.preventDefault()
+    openCreateDialog('link')
     return
   }
 
@@ -1417,8 +1603,20 @@ onBeforeUnmount(() => {
                   <div class="card-heading">
                     <div class="badge">{{ typeLabel(item.type) }}</div>
                     <div v-if="clipItemTitle(item)" class="card-title">
-                      {{ clipItemTitle(item) }}
+                      <!-- eslint-disable-next-line vue/no-v-html -->
+                      <span v-html="highlight(clipItemTitle(item))"></span>
                     </div>
+                  </div>
+                  <div v-if="canInlineEdit(item)" class="card-tools">
+                    <button
+                      class="card-tool-btn"
+                      :class="{ active: isInlineEditing(item) }"
+                      @click.stop="
+                        isInlineEditing(item) ? cancelInlineEdit() : beginInlineEdit(item)
+                      "
+                    >
+                      {{ isInlineEditing(item) ? '取消' : '编辑' }}
+                    </button>
                   </div>
                 </div>
 
@@ -1433,9 +1631,47 @@ onBeforeUnmount(() => {
                       <span class="color-text">{{ item.content }}</span>
                     </div>
                   </template>
+                  <template v-else-if="isInlineEditing(item)">
+                    <div class="inline-editor" @click.stop>
+                      <textarea
+                        v-model="inlineEditDraft"
+                        class="inline-edit-area"
+                        autofocus
+                        @click.stop
+                        @keydown="onInlineEditorKeyDown"
+                      ></textarea>
+                      <div class="inline-edit-actions">
+                        <button
+                          class="sel-btn"
+                          :disabled="inlineEditSaving"
+                          @click.stop="cancelInlineEdit()"
+                        >
+                          取消
+                        </button>
+                        <button
+                          class="primary-btn compact"
+                          :disabled="inlineEditSaving"
+                          @click.stop="saveInlineEdit()"
+                        >
+                          {{ inlineEditSaving ? '保存中…' : '保存' }}
+                        </button>
+                      </div>
+                    </div>
+                  </template>
                   <template v-else>
                     <!-- eslint-disable-next-line vue/no-v-html -->
-                    <div class="text-preview" v-html="highlight(previewText(item))"></div>
+                    <div class="text-preview" v-html="cardPreviewHtml(item)"></div>
+                    <div v-if="cardSearchContextLines(item).length > 0" class="match-lines">
+                      <div
+                        v-for="line in cardSearchContextLines(item)"
+                        :key="line.key"
+                        class="match-line"
+                      >
+                        <span class="match-label">{{ line.label }}</span>
+                        <!-- eslint-disable-next-line vue/no-v-html -->
+                        <span class="match-value" v-html="line.html"></span>
+                      </div>
+                    </div>
                   </template>
                 </div>
 
@@ -1472,6 +1708,8 @@ onBeforeUnmount(() => {
           <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
             <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
             <div class="sel-actions">
+              <button class="sel-btn" @click="bulkCopyAsText()">复制文本</button>
+              <button class="sel-btn" @click="bulkAddToPasteStack()">加入 Stack</button>
               <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
               <button class="sel-btn" @click="clearSelection()">取消</button>
             </div>
@@ -1521,7 +1759,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="preview-footer">
-          <span class="hint">{{ appSettings?.shortcuts.newItem || '⌘N' }} 新建</span>
+          <span class="hint">
+            {{ appSettings?.shortcuts.newTextItem || '⌘N' }} 文本 ·
+            {{ appSettings?.shortcuts.newLinkItem || '⌘⇧N' }} 链接
+          </span>
           <button class="primary-btn" @click="saveCreatedItem()">保存条目</button>
         </div>
       </div>
@@ -2159,6 +2400,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -2168,6 +2410,30 @@ body {
   gap: 8px;
   min-width: 0;
   width: 100%;
+}
+
+.card-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.card-tool-btn {
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.card-tool-btn:hover,
+.card-tool-btn.active {
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill));
 }
 
 .badge {
@@ -2202,8 +2468,10 @@ body {
   flex: 1;
   min-height: 0;
   display: flex;
+  flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
+  gap: 10px;
   overflow: hidden;
 }
 
@@ -2216,6 +2484,7 @@ body {
   display: -webkit-box;
   -webkit-line-clamp: 7;
   -webkit-box-orient: vertical;
+  width: 100%;
 }
 
 .text-preview mark {
@@ -2223,6 +2492,69 @@ body {
   color: inherit;
   padding: 0 2px;
   border-radius: 4px;
+}
+
+.match-lines {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.match-line {
+  display: flex;
+  gap: 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.match-label {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-surface);
+}
+
+.match-value {
+  min-width: 0;
+  flex: 1;
+}
+
+.match-value mark {
+  background: rgba(0, 122, 255, 0.18);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 4px;
+}
+
+.inline-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
+.inline-edit-area {
+  width: 100%;
+  min-height: 108px;
+  resize: none;
+  border: 1px solid var(--accent-border);
+  background: color-mix(in srgb, var(--bg-surface) 86%, var(--accent-fill));
+  color: var(--text-primary);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  outline: none;
+}
+
+.inline-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .image-box {
@@ -2587,6 +2919,11 @@ body {
   cursor: pointer;
   font-size: 13px;
   white-space: nowrap;
+}
+
+.primary-btn.compact {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .primary-btn:hover {

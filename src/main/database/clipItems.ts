@@ -241,8 +241,10 @@ export function searchClipItems(filters: SearchFilters): ClipItem[] {
 
   if (query) {
     const like = `%${query}%`
-    conditions.push('(ci.plain_text LIKE ? OR ci.title LIKE ? OR ci.ocr_text LIKE ?)')
-    params.push(like, like, like)
+    conditions.push(
+      '(ci.plain_text LIKE ? OR ci.title LIKE ? OR ci.ocr_text LIKE ? OR ci.content LIKE ? OR ci.link_meta LIKE ?)'
+    )
+    params.push(like, like, like, like, like)
   }
 
   if (types.length > 0) {

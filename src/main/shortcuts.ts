@@ -9,11 +9,11 @@ interface ShortcutCallbacks {
   togglePauseCapture: () => void
 }
 
-const LOCAL_SHORTCUTS = new Set<ShortcutAction>(['focusSearch', 'newItem'])
-const PASTE_STACK_ACCELERATOR = 'CommandOrControl+V'
+const LOCAL_SHORTCUTS = new Set<ShortcutAction>(['focusSearch', 'newTextItem', 'newLinkItem'])
 
 let shortcutState: ShortcutRegistrationState = createEmptyShortcutState()
 let pasteStackPasteHandler: (() => void) | null = null
+let pasteStackPasteAccelerator = ''
 let pasteStackPasteShortcutEnabled = false
 let pasteStackPasteShortcutSuspendDepth = 0
 
@@ -23,9 +23,19 @@ function createEmptyShortcutState(): ShortcutRegistrationState {
     quickPasteLatest: { scope: 'global', registered: false, accelerator: '' },
     pasteLatestPlainText: { scope: 'global', registered: false, accelerator: '' },
     togglePasteStack: { scope: 'global', registered: false, accelerator: '' },
+    pasteStackPaste: { scope: 'global', registered: false, accelerator: '' },
     togglePauseCapture: { scope: 'global', registered: false, accelerator: '' },
     focusSearch: { scope: 'local', registered: true, accelerator: '' },
-    newItem: { scope: 'local', registered: true, accelerator: '' }
+    newTextItem: { scope: 'local', registered: true, accelerator: '' },
+    newLinkItem: { scope: 'local', registered: true, accelerator: '' }
+  }
+}
+
+function updatePasteStackPasteShortcutState(registered: boolean): void {
+  shortcutState.pasteStackPaste = {
+    scope: 'global',
+    accelerator: pasteStackPasteAccelerator,
+    registered
   }
 }
 
@@ -69,6 +79,9 @@ export function registerGlobalShortcuts(
   }
 
   shortcutState = nextState
+  pasteStackPasteAccelerator = settings.shortcuts.pasteStackPaste
+  updatePasteStackPasteShortcutState(false)
+  updatePasteStackPasteShortcutState(applyPasteStackPasteShortcutRegistration())
   return shortcutState
 }
 
@@ -82,21 +95,25 @@ export function getShortcutRegistrationState(): ShortcutRegistrationState {
 
 export function configurePasteStackPasteShortcut(handler: () => void): void {
   pasteStackPasteHandler = handler
+  updatePasteStackPasteShortcutState(applyPasteStackPasteShortcutRegistration())
 }
 
 function applyPasteStackPasteShortcutRegistration(): boolean {
-  globalShortcut.unregister(PASTE_STACK_ACCELERATOR)
+  if (pasteStackPasteAccelerator) {
+    globalShortcut.unregister(pasteStackPasteAccelerator)
+  }
 
   if (
     !pasteStackPasteShortcutEnabled ||
     !pasteStackPasteHandler ||
+    !pasteStackPasteAccelerator ||
     pasteStackPasteShortcutSuspendDepth > 0
   ) {
     return false
   }
 
   try {
-    return globalShortcut.register(PASTE_STACK_ACCELERATOR, pasteStackPasteHandler)
+    return globalShortcut.register(pasteStackPasteAccelerator, pasteStackPasteHandler)
   } catch {
     return false
   }
@@ -104,19 +121,21 @@ function applyPasteStackPasteShortcutRegistration(): boolean {
 
 export function syncPasteStackPasteShortcut(enabled: boolean): boolean {
   pasteStackPasteShortcutEnabled = enabled
-  return applyPasteStackPasteShortcutRegistration()
+  const registered = applyPasteStackPasteShortcutRegistration()
+  updatePasteStackPasteShortcutState(registered)
+  return registered
 }
 
 export async function withPasteStackPasteShortcutSuspended<T>(
   fn: () => Promise<T> | T
 ): Promise<T> {
   pasteStackPasteShortcutSuspendDepth += 1
-  applyPasteStackPasteShortcutRegistration()
+  updatePasteStackPasteShortcutState(applyPasteStackPasteShortcutRegistration())
 
   try {
     return await fn()
   } finally {
     pasteStackPasteShortcutSuspendDepth = Math.max(0, pasteStackPasteShortcutSuspendDepth - 1)
-    applyPasteStackPasteShortcutRegistration()
+    updatePasteStackPasteShortcutState(applyPasteStackPasteShortcutRegistration())
   }
 }

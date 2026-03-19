@@ -30,9 +30,11 @@ const DEFAULT_SETTINGS: AppSettings = {
     quickPasteLatest: 'CommandOrControl+Shift+Option+V',
     pasteLatestPlainText: 'CommandOrControl+Shift+Option+P',
     togglePasteStack: 'CommandOrControl+Shift+S',
+    pasteStackPaste: 'CommandOrControl+V',
     togglePauseCapture: 'CommandOrControl+Shift+P',
     focusSearch: 'CommandOrControl+F',
-    newItem: 'CommandOrControl+N'
+    newTextItem: 'CommandOrControl+N',
+    newLinkItem: 'CommandOrControl+Shift+N'
   },
   sync: {
     enabled: false
@@ -108,10 +110,13 @@ function sanitizeSettings(input: Partial<AppSettings> | null | undefined): AppSe
         DEFAULT_SETTINGS.shortcuts.pasteLatestPlainText,
       togglePasteStack:
         next.shortcuts?.togglePasteStack?.trim() || DEFAULT_SETTINGS.shortcuts.togglePasteStack,
+      pasteStackPaste:
+        next.shortcuts?.pasteStackPaste?.trim() || DEFAULT_SETTINGS.shortcuts.pasteStackPaste,
       togglePauseCapture:
         next.shortcuts?.togglePauseCapture?.trim() || DEFAULT_SETTINGS.shortcuts.togglePauseCapture,
       focusSearch: next.shortcuts?.focusSearch?.trim() || DEFAULT_SETTINGS.shortcuts.focusSearch,
-      newItem: next.shortcuts?.newItem?.trim() || DEFAULT_SETTINGS.shortcuts.newItem
+      newTextItem: next.shortcuts?.newTextItem?.trim() || DEFAULT_SETTINGS.shortcuts.newTextItem,
+      newLinkItem: next.shortcuts?.newLinkItem?.trim() || DEFAULT_SETTINGS.shortcuts.newLinkItem
     },
     sync: {
       enabled: Boolean(next.sync?.enabled ?? DEFAULT_SETTINGS.sync.enabled)
