@@ -7,3 +7,4 @@ export {
 } from './mainWindow'
 export { createPreviewWindow, getPreviewWindow } from './previewWindow'
 export { createSettingsWindow, getSettingsWindow } from './settingsWindow'
+export { getStackDockWindow, hideStackDockWindow, syncStackDockWindow } from './stackDockWindow'

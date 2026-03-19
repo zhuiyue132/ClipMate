@@ -22,6 +22,10 @@ export class PasteStackManager {
     this.onChanged()
   }
 
+  isEnabled(): boolean {
+    return this.enabled
+  }
+
   getState(): PasteStackState {
     const ids = Array.from(new Set(this.queue.map((entry) => entry.itemId)))
     const itemsMap = getClipItemsByIds(ids)
@@ -57,10 +61,17 @@ export class PasteStackManager {
   reorder(entryIds: string[]): void {
     const entryMap = new Map(this.queue.map((entry) => [entry.entryId, entry] as const))
     const nextQueue: PasteStackQueueEntry[] = []
+    const orderedIds = new Set(entryIds)
 
     for (const entryId of entryIds) {
       const entry = entryMap.get(entryId)
       if (entry) {
+        nextQueue.push(entry)
+      }
+    }
+
+    for (const entry of this.queue) {
+      if (!orderedIds.has(entry.entryId)) {
         nextQueue.push(entry)
       }
     }
@@ -71,23 +82,52 @@ export class PasteStackManager {
 
   async pasteAll(options: {
     beforeStart?: () => void | Promise<void>
-    pasteEntry: (entry: PasteStackQueueEntry) => Promise<void>
+    pasteEntry: (entry: PasteStackQueueEntry) => Promise<boolean>
   }): Promise<void> {
     if (this.pasting) return
 
     this.pasting = true
     try {
-      const entries = [...this.queue]
-      if (entries.length === 0) return
+      const entryIds = this.queue.map((entry) => entry.entryId)
+      if (entryIds.length === 0) return
 
       await options.beforeStart?.()
 
-      for (const entry of entries) {
-        await options.pasteEntry(entry)
-      }
+      for (const entryId of entryIds) {
+        const entry = this.queue.find((current) => current.entryId === entryId)
+        if (!entry) continue
 
-      this.queue = []
+        const pasted = await options.pasteEntry(entry)
+        if (!pasted) {
+          break
+        }
+
+        this.queue = this.queue.filter((current) => current.entryId !== entryId)
+        this.onChanged()
+      }
+    } finally {
+      this.pasting = false
+    }
+  }
+
+  async pasteNext(options: {
+    beforeStart?: () => void | Promise<void>
+    pasteEntry: (entry: PasteStackQueueEntry) => Promise<boolean>
+  }): Promise<boolean> {
+    if (this.pasting) return false
+
+    const entry = this.queue[0]
+    if (!entry) return false
+
+    this.pasting = true
+    try {
+      await options.beforeStart?.()
+      const pasted = await options.pasteEntry(entry)
+      if (!pasted) return false
+
+      this.queue = this.queue.filter((current) => current.entryId !== entry.entryId)
       this.onChanged()
+      return true
     } finally {
       this.pasting = false
     }

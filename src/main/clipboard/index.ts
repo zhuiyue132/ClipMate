@@ -1,5 +1,6 @@
+import { Notification } from 'electron'
 import { getClipItemById, getLatestClipItemRecord } from '../database/clipItems'
-import { getMainWindow } from '../windows'
+import { getMainWindow, syncStackDockWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { PasteStackState } from '../../shared/types'
 import {
@@ -7,6 +8,7 @@ import {
   broadcastClipStateChanged,
   broadcastPasteStackChanged
 } from '../events'
+import { syncPasteStackPasteShortcut, withPasteStackPasteShortcutSuspended } from '../shortcuts'
 import { createClipboardSignature, getClipboardSignature } from './content'
 import {
   createDragIconFromBase64,
@@ -26,7 +28,30 @@ const pasteStack = new PasteStackManager(notifyStackChanged)
 const clipboardStateListeners = new Set<(paused: boolean) => void>()
 
 function notifyStackChanged(): void {
+  const state = pasteStack.getState()
+  syncStackDockWindow(state)
+  syncPasteStackPasteShortcut(state.enabled && state.entries.length > 0)
   broadcastPasteStackChanged()
+}
+
+function showPasteStackEnabledNotification(): void {
+  if (!Notification.isSupported()) return
+
+  new Notification({
+    title: 'ClipMate',
+    body: 'PasteStack 已启用',
+    silent: true
+  }).show()
+}
+
+function showPasteStackDisabledNotification(): void {
+  if (!Notification.isSupported()) return
+
+  new Notification({
+    title: 'ClipMate',
+    body: 'PasteStack 已退出',
+    silent: true
+  }).show()
 }
 
 function activateLastTargetApp(): void {
@@ -150,6 +175,16 @@ export function suppressNextClipboardCapture(ms = 800): void {
   watcher?.suppressCapture(ms)
 }
 
+function rememberWrittenClipItem(
+  item: Pick<NonNullable<ReturnType<typeof getClipItemById>>, 'id'>
+): void {
+  watcher?.rememberClipboardWrite(item.id)
+}
+
+function rememberCurrentClipboard(): void {
+  watcher?.rememberClipboardWrite()
+}
+
 export function recordLastActiveApp(app: FrontmostAppInfo): void {
   lastActiveApp = app
 }
@@ -159,11 +194,18 @@ export function getPasteStackState(): PasteStackState {
 }
 
 export function setPasteStackEnabled(enabled: boolean): void {
+  const wasEnabled = pasteStack.isEnabled()
   pasteStack.setEnabled(enabled)
+
+  if (enabled && !wasEnabled) {
+    showPasteStackEnabledNotification()
+  } else if (!enabled && wasEnabled) {
+    showPasteStackDisabledNotification()
+  }
 }
 
 export function togglePasteStackEnabled(): void {
-  pasteStack.setEnabled(!pasteStack.getState().enabled)
+  setPasteStackEnabled(!pasteStack.isEnabled())
 }
 
 export function clearPasteStack(): void {
@@ -182,6 +224,23 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+async function writeClipItemAndPaste(
+  item: NonNullable<ReturnType<typeof getClipItemById>>,
+  options?: { plainText?: boolean; suppressMs?: number; keystrokeDelaySeconds?: number }
+): Promise<boolean> {
+  writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
+  rememberWrittenClipItem(item)
+  suppressNextClipboardCapture(options?.suppressMs ?? 1500)
+
+  return withPasteStackPasteShortcutSuspended(async () => {
+    const pasted = sendCmdVKeystroke(options?.keystrokeDelaySeconds ?? 0.05)
+    if (pasted) {
+      await delay(120)
+    }
+    return pasted
+  })
+}
+
 export async function pastePasteStack(): Promise<void> {
   await pasteStack.pasteAll({
     beforeStart: () => {
@@ -190,12 +249,31 @@ export async function pastePasteStack(): Promise<void> {
     },
     pasteEntry: async (entry) => {
       const item = getClipItemById(entry.itemId)
-      if (!item) return
+      if (!item) return false
 
-      writeClipItemToClipboard(item, { plainText: false })
-      suppressNextClipboardCapture(1500)
-      sendCmdVKeystroke()
-      await delay(120)
+      return writeClipItemAndPaste(item, {
+        plainText: false,
+        suppressMs: 1500,
+        keystrokeDelaySeconds: 0.04
+      })
+    }
+  })
+}
+
+export async function pasteNextFromPasteStackShortcut(): Promise<boolean> {
+  return pasteStack.pasteNext({
+    beforeStart: () => {
+      getMainWindow()?.hide()
+    },
+    pasteEntry: async (entry) => {
+      const item = getClipItemById(entry.itemId)
+      if (!item) return false
+
+      return writeClipItemAndPaste(item, {
+        plainText: false,
+        suppressMs: 1500,
+        keystrokeDelaySeconds: 0.008
+      })
     }
   })
 }
@@ -204,13 +282,14 @@ export function pasteClipItem(id: string, options?: { plainText?: boolean }): vo
   const item = getClipItemById(id)
   if (!item) return
 
-  writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
-  suppressNextClipboardCapture()
-
   // 先隐藏面板，避免按键落在自身窗口上
   getMainWindow()?.hide()
   activateLastTargetApp()
-  sendCmdVKeystroke()
+  void writeClipItemAndPaste(item, {
+    plainText: options?.plainText ?? false,
+    suppressMs: 800,
+    keystrokeDelaySeconds: 0.05
+  })
 }
 
 export function pasteLatestClipItem(options?: { plainText?: boolean }): void {
@@ -224,6 +303,7 @@ export function copyClipItem(id: string, options?: { plainText?: boolean }): voi
   const item = getClipItemById(id)
   if (!item) return
   writeClipItemToClipboard(item, { plainText: options?.plainText ?? false })
+  rememberWrittenClipItem(item)
   suppressNextClipboardCapture()
 }
 
@@ -233,11 +313,15 @@ export function pasteClipItemAsFile(id: string): void {
 
   const filePath = writeBase64ImageToTempFile(item.id, item.content)
   writeFilePathsToClipboard([filePath])
+  rememberCurrentClipboard()
   suppressNextClipboardCapture(1500)
 
   getMainWindow()?.hide()
   activateLastTargetApp()
-  sendCmdVKeystroke()
+  void withPasteStackPasteShortcutSuspended(async () => {
+    sendCmdVKeystroke(0.05)
+    await delay(120)
+  })
 }
 
 export function startImageDrag(

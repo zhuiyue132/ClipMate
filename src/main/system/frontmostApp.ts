@@ -54,19 +54,20 @@ export function activateApp(target: FrontmostAppInfo): void {
   }
 }
 
-export function sendCmdVKeystroke(): void {
+export function sendCmdVKeystroke(delaySeconds = 0.05): boolean {
   try {
     execFileSync(
       'osascript',
       [
         '-e',
-        'delay 0.05',
+        `delay ${Math.max(0, delaySeconds).toFixed(3)}`,
         '-e',
         'tell application "System Events" to keystroke "v" using {command down}'
       ],
       { encoding: 'utf8' }
     )
+    return true
   } catch {
-    // ignore
+    return false
   }
 }

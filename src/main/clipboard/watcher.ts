@@ -66,6 +66,23 @@ export class ClipboardWatcher {
     this.ignoreUntil = Math.max(this.ignoreUntil, Date.now() + ms)
   }
 
+  rememberClipboardWrite(itemId?: string | null): void {
+    const content = readClipboardContent()
+    if (!content) return
+
+    const signature = createClipboardSignature({
+      type: content.type,
+      content: content.content,
+      plain_text: content.plain_text
+    })
+
+    this.lastSeenSignature = signature
+    this.pendingSignature = null
+    if (itemId) {
+      this.lastSaved = { id: itemId, signature }
+    }
+  }
+
   private primeLastSaved(): void {
     const latest = getLatestClipItemRecord()
     if (latest?.id) {

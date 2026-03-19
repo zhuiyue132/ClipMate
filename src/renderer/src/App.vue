@@ -2,12 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
+import StackDockView from './StackDockView.vue'
 import type {
   AppSettings,
   AppIconTarget,
   ClipItem,
   PanelSnapshot,
-  PasteStackEntry,
   PasteStackState,
   SearchFilters,
   SettingsSnapshot,
@@ -31,6 +31,7 @@ const HEADER_CONTROL_COUNT = TYPE_OPTIONS.length + 1
 const routeHash = ref(window.location.hash || '#/')
 const isSettingsRoute = computed(() => routeHash.value.startsWith('#/settings'))
 const isPreviewRoute = computed(() => routeHash.value.startsWith('#/preview'))
+const isStackDockRoute = computed(() => routeHash.value.startsWith('#/stack-dock'))
 const appSettings = ref<AppSettings | null>(null)
 
 const historyItems = ref<ClipItem[]>([])
@@ -63,9 +64,7 @@ const createType = ref<'text' | 'link'>('text')
 const createTitle = ref('')
 const createContent = ref('')
 
-const panelMode = ref<'main' | 'stack'>('main')
 const pasteStackState = ref<PasteStackState>({ enabled: false, entries: [] })
-const stackDraggingId = ref<string | null>(null)
 
 const toast = ref<string | null>(null)
 let toastTimer: number | null = null
@@ -191,21 +190,14 @@ const visibleItems = computed(() => {
   return filteredHistoryItems.value
 })
 
-const hasItems = computed(() => {
-  if (panelMode.value === 'stack') {
-    return pasteStackState.value.entries.length > 0
-  }
-  return visibleItems.value.length > 0
-})
+const hasItems = computed(() => visibleItems.value.length > 0)
 
 const virtualStartIndex = computed(() => {
-  if (panelMode.value !== 'main') return 0
   const start = Math.floor(cardsViewportScrollLeft.value / CARD_STRIDE) - CARD_OVERSCAN
   return Math.max(0, start)
 })
 
 const virtualEndIndex = computed(() => {
-  if (panelMode.value !== 'main') return visibleItems.value.length
   const visibleCount = Math.ceil(cardsViewportWidth.value / CARD_STRIDE) + CARD_OVERSCAN * 2
   return Math.min(visibleItems.value.length, virtualStartIndex.value + Math.max(visibleCount, 8))
 })
@@ -380,7 +372,7 @@ function onCardsScroll(event: Event): void {
 
 function scrollCardIntoView(itemId: string): void {
   const container = historyCardsRef.value
-  if (!container || panelMode.value !== 'main') return
+  if (!container) return
 
   const index = visibleItems.value.findIndex((item) => item.id === itemId)
   if (index < 0) return
@@ -638,7 +630,7 @@ async function refreshAfterMutation(): Promise<void> {
 
 async function refreshVisibleState(): Promise<void> {
   await Promise.all([refreshState(), refreshPasteStack(), refreshAfterMutation()])
-  if (!isSearchActive.value && panelMode.value === 'main') {
+  if (!isSearchActive.value) {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
     updateCardsViewportMetrics()
@@ -651,7 +643,6 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   sourceApps.value = snapshot.sourceApps
   pasteStackState.value = snapshot.pasteStackState
   if (!resetUi) return
-  panelMode.value = 'main'
   search.value = ''
   searchExpanded.value = false
   typeChip.value = 'all'
@@ -674,62 +665,10 @@ async function refreshPasteStack(): Promise<void> {
   pasteStackState.value = await window.api.getPasteStackState()
 }
 
-async function openPasteStack(): Promise<void> {
+async function togglePasteStackUi(): Promise<void> {
   closeAllMenus()
-  panelMode.value = 'stack'
-  await window.api.setPasteStackEnabled(true)
+  await window.api.setPasteStackEnabled(!pasteStackState.value.enabled)
   await refreshPasteStack()
-}
-
-async function exitPasteStack(): Promise<void> {
-  await window.api.setPasteStackEnabled(false)
-  await refreshPasteStack()
-  panelMode.value = 'main'
-}
-
-async function clearPasteStackEntries(): Promise<void> {
-  await window.api.clearPasteStack()
-  await refreshPasteStack()
-}
-
-async function removePasteStackEntryUi(entryId: string): Promise<void> {
-  await window.api.removePasteStackEntry(entryId)
-  await refreshPasteStack()
-}
-
-function stackEntryTitle(entry: PasteStackEntry): string {
-  if (entry.item) return clipItemTitle(entry.item) || previewText(entry.item)
-  return '(条目已删除)'
-}
-
-function onStackDragStart(ev: DragEvent, entryId: string): void {
-  stackDraggingId.value = entryId
-  ev.dataTransfer?.setData('text/plain', entryId)
-  if (ev.dataTransfer) ev.dataTransfer.effectAllowed = 'move'
-}
-
-async function onStackDrop(targetEntryId: string): Promise<void> {
-  const fromId = stackDraggingId.value
-  stackDraggingId.value = null
-  if (!fromId || fromId === targetEntryId) return
-
-  const entries = [...pasteStackState.value.entries]
-  const from = entries.findIndex((e) => e.entry_id === fromId)
-  const to = entries.findIndex((e) => e.entry_id === targetEntryId)
-  if (from < 0 || to < 0) return
-
-  const [moved] = entries.splice(from, 1)
-  entries.splice(to, 0, moved)
-  pasteStackState.value = { ...pasteStackState.value, entries }
-
-  await window.api.reorderPasteStack(entries.map((e) => e.entry_id))
-}
-
-async function pasteStackNow(): Promise<void> {
-  if (pasteStackState.value.entries.length === 0) return
-  await window.api.pastePasteStack()
-  await refreshPasteStack()
-  showToast('已按顺序粘贴队列')
 }
 
 function startOfDayTs(date: Date): number {
@@ -1080,7 +1019,7 @@ watch(typeChip, (value) => {
 })
 
 watch([historyItems, typeChip], async () => {
-  if (!isSearchActive.value && panelMode.value === 'main') {
+  if (!isSearchActive.value) {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
     updateCardsViewportMetrics()
@@ -1110,10 +1049,7 @@ watch(
 )
 
 function onWindowContextMenu(e: MouseEvent): void {
-  if (
-    !(e.target as HTMLElement | null)?.closest?.('.card') &&
-    !(e.target as HTMLElement | null)?.closest?.('.stack-row')
-  ) {
+  if (!(e.target as HTMLElement | null)?.closest?.('.card')) {
     closeAllMenus()
   }
 }
@@ -1126,9 +1062,6 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function getPreviewCandidateId(): string | null {
-  if (panelMode.value === 'stack') {
-    return pasteStackState.value.entries[0]?.item_id ?? null
-  }
   if (selectedIds.value.length === 1) return selectedIds.value[0]
   if (activeCardId.value) return activeCardId.value
   if (hoveredId.value) return hoveredId.value
@@ -1162,20 +1095,7 @@ function onWindowKeyDown(e: KeyboardEvent): void {
 
   if (typing) return
 
-  if (panelMode.value === 'stack') {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      void exitPasteStack()
-      return
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      void pasteStackNow()
-      return
-    }
-  }
-
-  if (panelMode.value === 'main' && !filtersOpen.value && !moreOpen.value && !ctxOpen.value) {
+  if (!filtersOpen.value && !moreOpen.value && !ctxOpen.value) {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
       e.preventDefault()
       // 如果焦点在 header 控件上，先 blur 防止浏览器将焦点元素滚入视图导致 chips 偏移
@@ -1226,7 +1146,7 @@ function onWindowResize(): void {
 
 onMounted(async () => {
   window.addEventListener('hashchange', onHashChange)
-  if (isSettingsRoute.value || isPreviewRoute.value) {
+  if (isSettingsRoute.value || isPreviewRoute.value || isStackDockRoute.value) {
     return
   }
 
@@ -1307,6 +1227,7 @@ onBeforeUnmount(() => {
 <template>
   <SettingsView v-if="isSettingsRoute" />
   <PreviewView v-else-if="isPreviewRoute" />
+  <StackDockView v-else-if="isStackDockRoute" />
   <div v-else class="app">
     <header class="app-header">
       <div class="header-placeholder" aria-hidden="true"></div>
@@ -1441,8 +1362,8 @@ onBeforeUnmount(() => {
             <button class="menu-item" @click="togglePaused()">
               {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
             </button>
-            <button class="menu-item" @click="openPasteStack()">
-              📦 Paste Stack {{ pasteStackState.enabled ? '· ON' : '' }}
+            <button class="menu-item" @click="togglePasteStackUi()">
+              {{ pasteStackState.enabled ? '📦 关闭 Paste Stack' : '📦 启用 Paste Stack' }}
             </button>
             <button class="menu-item" @click="clearHistory()">🗑 清空历史</button>
             <div class="menu-sep"></div>
@@ -1455,148 +1376,88 @@ onBeforeUnmount(() => {
     <main class="app-content">
       <div class="layout">
         <section class="main-panel" :class="{ 'with-selection-bar': selectedIds.length > 0 }">
-          <template v-if="panelMode === 'stack'">
-            <div class="stack-header">
-              <div class="stack-title">
-                <span class="stack-icon">⧉</span>
-                <span>Paste Stack</span>
-                <span class="stack-badge" :class="{ on: pasteStackState.enabled }">
-                  {{ pasteStackState.enabled ? 'ON' : 'OFF' }}
-                </span>
-              </div>
-              <div class="stack-actions">
-                <button class="sel-btn danger" @click="exitPasteStack()">退出</button>
-                <button class="sel-btn" @click="clearPasteStackEntries()">清空</button>
-                <button
-                  class="sel-btn"
-                  :disabled="pasteStackState.entries.length === 0"
-                  @click="pasteStackNow()"
-                >
-                  开始粘贴
-                </button>
-              </div>
-            </div>
+          <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
-            <div class="stack-hint">复制会持续追加到队列，按顺序逐条自动粘贴。</div>
+          <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
+            <div class="loading-spinner"></div>
+            <div class="loading-title">正在同步最新剪贴板…</div>
+            <div class="loading-sub">内容准备好后会立即显示</div>
+          </div>
 
-            <div v-if="pasteStackState.entries.length === 0" class="empty-state">
-              <p>队列为空</p>
-              <p class="empty-hint">打开 Stack 后，复制内容将自动入队</p>
-            </div>
+          <div v-else-if="!hasItems && !loading" class="empty-state">
+            <p>{{ isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪' }}</p>
+            <p class="empty-hint">
+              {{ isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里' }}
+            </p>
+          </div>
 
-            <div v-else class="stack-list">
+          <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
+            <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
               <div
-                v-for="(entry, index) in pasteStackState.entries"
-                :key="entry.entry_id"
-                class="stack-row"
-                draggable="true"
-                @dragstart="onStackDragStart($event, entry.entry_id)"
-                @dragover.prevent
-                @drop.prevent="onStackDrop(entry.entry_id)"
-                @click="entry.item && openPreviewById(entry.item_id)"
+                v-for="(item, index) in virtualItems"
+                :key="item.id"
+                :ref="(el) => setCardRef(item.id, el)"
+                class="card"
+                :data-card-id="item.id"
+                :draggable="item.type === 'image'"
+                :style="{
+                  transform: `translateX(${(virtualStartIndex + index) * CARD_STRIDE}px)`
+                }"
+                :class="{
+                  active: activeCardId === item.id,
+                  selected: selectedSet.has(item.id)
+                }"
+                @mouseenter="onItemMouseEnter(item)"
+                @mouseleave="onItemMouseLeave(item)"
+                @click="onItemClick($event, item)"
+                @dragstart="onItemDragStart($event, item)"
+                @contextmenu="openClipContextMenu($event, item)"
               >
-                <div class="stack-index">{{ index + 1 }}</div>
-                <div class="stack-body">
-                  <div class="stack-text">{{ stackEntryTitle(entry) }}</div>
-                  <div class="stack-sub">
-                    {{ entry.item?.source_app_name || '' }}
-                  </div>
-                </div>
-                <button
-                  class="stack-remove"
-                  title="移除"
-                  @click.stop="removePasteStackEntryUi(entry.entry_id)"
-                >
-                  ×
-                </button>
-              </div>
-            </div>
-          </template>
-
-          <template v-else>
-            <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
-
-            <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
-              <div class="loading-spinner"></div>
-              <div class="loading-title">正在同步最新剪贴板…</div>
-              <div class="loading-sub">内容准备好后会立即显示</div>
-            </div>
-
-            <div v-else-if="!hasItems && !loading" class="empty-state">
-              <p>{{ isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪' }}</p>
-              <p class="empty-hint">
-                {{ isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里' }}
-              </p>
-            </div>
-
-            <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
-              <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
-                <div
-                  v-for="(item, index) in virtualItems"
-                  :key="item.id"
-                  :ref="(el) => setCardRef(item.id, el)"
-                  class="card"
-                  :data-card-id="item.id"
-                  :draggable="item.type === 'image'"
-                  :style="{
-                    transform: `translateX(${(virtualStartIndex + index) * CARD_STRIDE}px)`
-                  }"
-                  :class="{
-                    active: activeCardId === item.id,
-                    selected: selectedSet.has(item.id)
-                  }"
-                  @mouseenter="onItemMouseEnter(item)"
-                  @mouseleave="onItemMouseLeave(item)"
-                  @click="onItemClick($event, item)"
-                  @dragstart="onItemDragStart($event, item)"
-                  @contextmenu="openClipContextMenu($event, item)"
-                >
-                  <div class="card-top">
-                    <div class="card-heading">
-                      <div class="badge">{{ typeLabel(item.type) }}</div>
-                      <div v-if="clipItemTitle(item)" class="card-title">
-                        {{ clipItemTitle(item) }}
-                      </div>
+                <div class="card-top">
+                  <div class="card-heading">
+                    <div class="badge">{{ typeLabel(item.type) }}</div>
+                    <div v-if="clipItemTitle(item)" class="card-title">
+                      {{ clipItemTitle(item) }}
                     </div>
                   </div>
+                </div>
 
-                  <div class="card-body">
-                    <template v-if="item.type === 'image'">
-                      <div class="image-box">
-                        <img v-if="imageSrc(item)" :src="imageSrc(item)!" alt="" />
-                      </div>
-                    </template>
-                    <template v-else-if="item.type === 'color'">
-                      <div class="color-box" :style="{ background: item.content }">
-                        <span class="color-text">{{ item.content }}</span>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <!-- eslint-disable-next-line vue/no-v-html -->
-                      <div class="text-preview" v-html="highlight(previewText(item))"></div>
-                    </template>
-                  </div>
+                <div class="card-body">
+                  <template v-if="item.type === 'image'">
+                    <div class="image-box">
+                      <img v-if="imageSrc(item)" :src="imageSrc(item)!" alt="" />
+                    </div>
+                  </template>
+                  <template v-else-if="item.type === 'color'">
+                    <div class="color-box" :style="{ background: item.content }">
+                      <span class="color-text">{{ item.content }}</span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <!-- eslint-disable-next-line vue/no-v-html -->
+                    <div class="text-preview" v-html="highlight(previewText(item))"></div>
+                  </template>
+                </div>
 
-                  <div class="card-footer">
-                    <div class="app-pill">
-                      <img
-                        v-if="appIconSrc(item)"
-                        class="app-icon"
-                        :src="appIconSrc(item)!"
-                        :alt="item.source_app_name || '应用图标'"
-                        @error="markAppIconFailed(item)"
-                      />
-                      <span v-else class="app-dot">{{ appIconInitial(item) }}</span>
-                      <div class="app-meta">
-                        <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
-                        <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
-                      </div>
+                <div class="card-footer">
+                  <div class="app-pill">
+                    <img
+                      v-if="appIconSrc(item)"
+                      class="app-icon"
+                      :src="appIconSrc(item)!"
+                      :alt="item.source_app_name || '应用图标'"
+                      @error="markAppIconFailed(item)"
+                    />
+                    <span v-else class="app-dot">{{ appIconInitial(item) }}</span>
+                    <div class="app-meta">
+                      <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
+                      <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          </template>
+          </div>
 
           <div
             v-if="ctxOpen"
@@ -2582,139 +2443,6 @@ body {
 
 .sel-btn.danger {
   color: var(--danger-color);
-}
-
-.stack-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.stack-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--text-primary);
-}
-
-.stack-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 10px;
-  background: rgba(0, 122, 255, 0.18);
-  border: 1px solid var(--border-color);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-}
-
-.stack-badge {
-  font-size: 12px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  background: var(--bg-surface);
-}
-
-.stack-badge.on {
-  border-color: rgba(16, 185, 129, 0.35);
-  background: rgba(16, 185, 129, 0.16);
-  color: var(--text-primary);
-}
-
-.stack-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.stack-hint {
-  font-size: 12px;
-  color: var(--text-secondary);
-  margin-bottom: 12px;
-}
-
-.stack-list {
-  flex: 1;
-  overflow: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-right: 2px;
-}
-
-.stack-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 12px;
-  border-radius: 16px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  cursor: pointer;
-}
-
-.stack-row:hover {
-  border-color: rgba(0, 122, 255, 0.3);
-}
-
-.stack-index {
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 122, 255, 0.18);
-  border: 1px solid var(--border-color);
-  font-weight: 800;
-}
-
-.stack-body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.stack-text {
-  font-size: 13px;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stack-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stack-remove {
-  width: 30px;
-  height: 30px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.stack-remove:hover {
-  background: var(--bg-card);
-  color: var(--text-primary);
 }
 
 .preview-overlay {

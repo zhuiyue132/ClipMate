@@ -11,8 +11,10 @@ import {
 import { setupIpcHandlers } from './ipc'
 import {
   captureClipboardBeforePanelShow,
+  getPasteStackState,
   isClipboardPaused,
   pasteLatestClipItem,
+  pasteNextFromPasteStackShortcut,
   recordLastActiveApp,
   setClipboardPaused,
   startClipboardWatcher,
@@ -26,8 +28,10 @@ import { startOcrWorker, stopOcrWorker } from './ocr'
 import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 import { buildPanelSnapshot } from './panelSnapshot'
 import {
+  configurePasteStackPasteShortcut,
   getShortcutRegistrationState,
   registerGlobalShortcuts,
+  syncPasteStackPasteShortcut,
   unregisterGlobalShortcuts
 } from './shortcuts'
 import {
@@ -99,6 +103,10 @@ function refreshTrayUi(): void {
 function applySettingsSideEffects(): void {
   const settings = getSettings()
 
+  configurePasteStackPasteShortcut(() => {
+    void pasteNextFromPasteStackShortcut()
+  })
+
   registerGlobalShortcuts(settings, {
     togglePanel: () => toggleMainWindowFromCurrentApp(),
     quickPasteLatest: () => {
@@ -112,6 +120,8 @@ function applySettingsSideEffects(): void {
     togglePasteStack: () => togglePasteStackEnabled(),
     togglePauseCapture: () => setClipboardPaused(!isClipboardPaused())
   })
+  const pasteStackState = getPasteStackState()
+  syncPasteStackPasteShortcut(pasteStackState.enabled && pasteStackState.entries.length > 0)
 
   app.setLoginItemSettings({
     openAtLogin: settings.general.launchAtLogin
@@ -227,7 +237,7 @@ app.whenReady().then(() => {
   startLinkMetaWorker()
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (!getMainWindow() || getMainWindow()?.isDestroyed()) {
       createMainWindow()
     }
   })
