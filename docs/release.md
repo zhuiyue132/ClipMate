@@ -39,6 +39,12 @@ npm run build:mac
 - Universal `.dmg`
 - Universal `.zip`
 
+说明：
+
+- 若提供了 `CSC_LINK` / `CSC_NAME` 等签名凭据，构建会启用正式 macOS 签名与 Hardened Runtime，供后续公证使用。
+- 若未提供签名凭据，构建会自动生成“本地可运行但未正式签名”的包，不启用 Hardened Runtime，避免安装后启动即闪退。
+- 未正式签名 / 未公证的包在目标机器上仍可能被 Gatekeeper 拦截，首次打开时需在 Finder 中右键 `Open` 或手动移除 quarantine。
+
 ## 4. CI Build
 
 仓库内已提供 GitHub Actions 工作流：
