@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getDatabase } from '../database'
-import { getMainWindow } from '../windows'
+import { broadcastClipItemsChanged } from '../events'
 
 const execFileAsync = promisify(execFile)
 
@@ -81,7 +81,7 @@ async function fetchAndStoreLinkMeta(id: string, url: string): Promise<void> {
     id
   )
 
-  getMainWindow()?.webContents.send('clip:itemsChanged')
+  broadcastClipItemsChanged()
 }
 
 export async function refreshLinkMetaForItem(id: string): Promise<void> {

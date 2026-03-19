@@ -17,6 +17,7 @@ import {
   updateClipItemText,
   updateClipItemTitle
 } from '../database/clipItems'
+import { broadcastClipItemsChanged } from '../events'
 import { refreshLinkMetaForItem } from '../linkMeta'
 
 export function registerDatabaseIpcHandlers(): void {
@@ -55,30 +56,36 @@ export function registerDatabaseIpcHandlers(): void {
       await refreshLinkMetaForItem(id)
     }
 
+    broadcastClipItemsChanged()
     return id
   })
 
   ipcMain.handle('db:updateClipItemTitle', (_event, id: string, title: string | null) => {
     updateClipItemTitle(id, title)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:updateClipItemText', (_event, id: string, text: string) => {
     updateClipItemText(id, text)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:updateClipItemLink', async (_event, id: string, url: string) => {
     updateClipItemLink(id, url)
     await refreshLinkMetaForItem(id)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:updateClipItemColor', (_event, id: string, color: string) => {
     updateClipItemColor(id, color)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle(
     'db:updateClipItemImage',
     (_event, id: string, payload: { contentBase64: string; thumbnailBase64?: string | null }) => {
       updateClipItemImage(id, payload)
+      broadcastClipItemsChanged()
     }
   )
 
@@ -112,19 +119,23 @@ export function registerDatabaseIpcHandlers(): void {
       updatedAt: now
     })
 
+    broadcastClipItemsChanged()
     return { text, createdItemId }
   })
 
   ipcMain.handle('db:deleteClipItem', (_event, id: string) => {
     deleteClipItem(id)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:deleteClipItems', (_event, ids: string[]) => {
     deleteClipItems(ids)
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:clearHistory', () => {
     clearClipItems()
+    broadcastClipItemsChanged()
   })
 
   ipcMain.handle('db:searchClipItems', (_event, filters: SearchFilters) => {

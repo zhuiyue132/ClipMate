@@ -99,7 +99,14 @@ const api = {
   // 窗口操作
   hideWindow: (): void => ipcRenderer.send('window:hide'),
   showSettings: (): void => ipcRenderer.send('window:showSettings'),
+  showPreview: (itemId: string): void => ipcRenderer.send('window:showPreview', itemId),
+  closeCurrentWindow: (): void => ipcRenderer.send('window:closeSelf'),
   quitApp: (): void => ipcRenderer.send('app:quit'),
+  onPreviewItemRequested: (callback: (itemId: string) => void): (() => void) => {
+    const listener = (_event, itemId: string): void => callback(itemId)
+    ipcRenderer.on('window:previewItem', listener)
+    return () => ipcRenderer.removeListener('window:previewItem', listener)
+  },
 
   // 系统权限
   getAccessibilityPermission: (): Promise<boolean> =>

@@ -5,4 +5,5 @@ export {
   showMainWindow,
   toggleMainWindow
 } from './mainWindow'
+export { createPreviewWindow, getPreviewWindow } from './previewWindow'
 export { createSettingsWindow, getSettingsWindow } from './settingsWindow'

@@ -2,6 +2,11 @@ import { getClipItemById, getLatestClipItemRecord } from '../database/clipItems'
 import { getMainWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { PasteStackState } from '../../shared/types'
+import {
+  broadcastClipItemsChanged,
+  broadcastClipStateChanged,
+  broadcastPasteStackChanged
+} from '../events'
 import { createClipboardSignature, getClipboardSignature } from './content'
 import {
   createDragIconFromBase64,
@@ -21,7 +26,7 @@ const pasteStack = new PasteStackManager(notifyStackChanged)
 const clipboardStateListeners = new Set<(paused: boolean) => void>()
 
 function notifyStackChanged(): void {
-  getMainWindow()?.webContents.send('clip:stackChanged')
+  broadcastPasteStackChanged()
 }
 
 function activateLastTargetApp(): void {
@@ -48,7 +53,7 @@ function stopClipboardCaptureBurst(): void {
 export function startClipboardWatcher(): void {
   if (watcher) return
   watcher = new ClipboardWatcher(220, ({ id }) => {
-    getMainWindow()?.webContents.send('clip:itemsChanged')
+    broadcastClipItemsChanged()
     pasteStack.enqueue(id)
   })
   watcher.start()
@@ -66,7 +71,7 @@ export function isClipboardPaused(): boolean {
 
 export function setClipboardPaused(paused: boolean): void {
   watcher?.setPaused(paused)
-  getMainWindow()?.webContents.send('clip:stateChanged', { paused })
+  broadcastClipStateChanged(paused)
 
   for (const listener of clipboardStateListeners) {
     listener(paused)

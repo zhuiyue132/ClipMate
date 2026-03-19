@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { getDatabase } from '../database'
-import { getMainWindow } from '../windows'
+import { broadcastClipItemsChanged } from '../events'
 
 const execFileAsync = promisify(execFile)
 
@@ -97,7 +97,7 @@ async function tickOnce(): Promise<void> {
       row.id
     )
 
-    getMainWindow()?.webContents.send('clip:itemsChanged')
+    broadcastClipItemsChanged()
   } finally {
     running = false
   }

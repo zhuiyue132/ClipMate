@@ -7,6 +7,7 @@ import type {
   ShortcutRegistrationState,
   SourceAppSummary,
   SyncState,
+  ThemePreference,
   UpdateState
 } from '../../shared/types'
 
@@ -56,6 +57,16 @@ const manualBundleName = ref('')
 let toastTimer: number | null = null
 let unsubSettings: (() => void) | null = null
 
+function applyTheme(theme: ThemePreference): void {
+  const root = document.documentElement
+  if (theme === 'system') {
+    delete root.dataset.theme
+    return
+  }
+
+  root.dataset.theme = theme
+}
+
 function cloneSettings(value: AppSettings): AppSettings {
   return JSON.parse(JSON.stringify(value)) as AppSettings
 }
@@ -76,6 +87,7 @@ function applySnapshot(snapshot: SettingsSnapshot): void {
   updateState.value = snapshot.updateState
   appVersion.value = snapshot.appVersion
   dbPath.value = snapshot.dbPath
+  applyTheme(snapshot.settings.general.theme)
 }
 
 async function loadSnapshot(): Promise<void> {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
 import type {
   AppSettings,
@@ -14,7 +15,7 @@ import type {
   ThemePreference
 } from '../../shared/types'
 
-type ClipMenuAction = 'paste' | 'copy' | 'pastePlain' | 'pasteFile' | 'delete'
+type ClipMenuAction = 'delete'
 type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 type DatePreset = 'all' | 'today' | 'week' | 'custom'
 const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
@@ -29,6 +30,7 @@ const HEADER_CONTROL_COUNT = TYPE_OPTIONS.length + 1
 
 const routeHash = ref(window.location.hash || '#/')
 const isSettingsRoute = computed(() => routeHash.value.startsWith('#/settings'))
+const isPreviewRoute = computed(() => routeHash.value.startsWith('#/preview'))
 const appSettings = ref<AppSettings | null>(null)
 
 const historyItems = ref<ClipItem[]>([])
@@ -56,16 +58,6 @@ const anchorId = ref<string | null>(null)
 const hoveredId = ref<string | null>(null)
 const selectedSet = computed(() => new Set(selectedIds.value))
 
-const previewOpen = ref(false)
-const previewItem = ref<ClipItem | null>(null)
-const previewLoading = ref(false)
-const editMode = ref(false)
-const editText = ref('')
-const linkEditMode = ref(false)
-const linkDraft = ref('')
-const renameOpen = ref(false)
-const renameDraft = ref('')
-const colorDraft = ref('#007AFF')
 const createOpen = ref(false)
 const createType = ref<'text' | 'link'>('text')
 const createTitle = ref('')
@@ -225,21 +217,6 @@ const virtualItems = computed(() =>
 const virtualTrackWidth = computed(() =>
   Math.max(visibleItems.value.length * CARD_STRIDE - CARD_GAP, CARD_WIDTH)
 )
-
-const previewLinkMeta = computed(() => {
-  const item = previewItem.value
-  if (!item || item.type !== 'link' || !item.link_meta) return null
-  try {
-    const meta = JSON.parse(item.link_meta) as {
-      title?: string
-      description?: string
-      image?: string
-    }
-    return meta
-  } catch {
-    return null
-  }
-})
 
 function typeChipIndex(value: TypeChip): number {
   const idx = TYPE_OPTIONS.findIndex((option) => option.value === value)
@@ -409,9 +386,21 @@ function scrollCardIntoView(itemId: string): void {
   if (index < 0) return
 
   const leftInContainer = index * CARD_STRIDE
-  const centeredLeft = leftInContainer - (container.clientWidth - CARD_WIDTH) / 2
+  const rightInContainer = leftInContainer + CARD_WIDTH
+  const viewportLeft = container.scrollLeft
+  const viewportRight = viewportLeft + container.clientWidth
   const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth)
-  const nextLeft = Math.max(0, Math.min(maxScrollLeft, centeredLeft))
+  let nextLeft = viewportLeft
+
+  if (leftInContainer < viewportLeft) {
+    nextLeft = leftInContainer
+  } else if (rightInContainer > viewportRight) {
+    nextLeft = rightInContainer - container.clientWidth
+  } else {
+    return
+  }
+
+  nextLeft = Math.max(0, Math.min(maxScrollLeft, nextLeft))
 
   container.scrollLeft = nextLeft
   cardsViewportScrollLeft.value = nextLeft
@@ -457,8 +446,6 @@ function moveActiveCard(direction: -1 | 1): void {
       : (currentIndex + direction + items.length) % items.length
   const nextId = items[nextIndex].id
   setActiveCard(nextId)
-  // 直接同步滚动，不走调度
-  scrollCardIntoView(nextId)
 }
 
 async function confirmActiveCard(): Promise<void> {
@@ -585,19 +572,6 @@ async function ensureVisibleAppIcons(items: ClipItem[]): Promise<void> {
       ...appIcons.value,
       ...Object.fromEntries(Array.from(missingTargets.keys()).map((key) => [key, null]))
     }
-  }
-}
-
-function getFilePaths(item: ClipItem): string[] {
-  if (item.type !== 'file') return []
-  try {
-    const parsed = JSON.parse(item.content) as { paths?: string[] }
-    return parsed.paths ?? []
-  } catch {
-    return (item.plain_text ?? '')
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
   }
 }
 
@@ -967,180 +941,9 @@ function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
 }
 
 async function openPreviewById(itemId: string): Promise<void> {
-  previewLoading.value = true
-  try {
-    const item = await window.api.getClipItem(itemId)
-    if (!item) return
-    setActiveCard(item.id)
-    previewItem.value = item
-    previewOpen.value = true
-    editMode.value = false
-    linkEditMode.value = false
-    editText.value = item.plain_text ?? item.content ?? ''
-    linkDraft.value = item.content
-    renameOpen.value = false
-    renameDraft.value = item.title ?? ''
-    if (item.type === 'color') {
-      colorDraft.value = item.content
-    }
-  } finally {
-    previewLoading.value = false
-  }
-}
-
-function closePreview(): void {
-  previewOpen.value = false
-  previewItem.value = null
-  editMode.value = false
-  linkEditMode.value = false
-  renameOpen.value = false
-}
-
-async function copyPreview(plainText = true): Promise<void> {
-  if (!previewItem.value) return
-  await window.api.copyClipItem(previewItem.value.id, { plainText })
-  showToast('已复制')
-}
-
-async function pastePreview(plainText = false): Promise<void> {
-  if (!previewItem.value) return
-  await window.api.pasteClipItem(previewItem.value.id, { plainText })
-  closePreview()
-}
-
-function toggleEdit(): void {
-  if (!previewItem.value) return
-  if (previewItem.value.type !== 'text' && previewItem.value.type !== 'richtext') return
-  linkEditMode.value = false
-  editMode.value = !editMode.value
-  if (editMode.value) {
-    editText.value = previewItem.value.plain_text ?? previewItem.value.content ?? ''
-  }
-}
-
-function toggleLinkEdit(): void {
-  if (!previewItem.value || previewItem.value.type !== 'link') return
-  editMode.value = false
-  linkEditMode.value = !linkEditMode.value
-  if (linkEditMode.value) {
-    linkDraft.value = previewItem.value.content
-  }
-}
-
-function toggleRename(): void {
-  if (!previewItem.value) return
-  renameOpen.value = !renameOpen.value
-  if (renameOpen.value) {
-    renameDraft.value = previewItem.value.title ?? ''
-  }
-}
-
-async function saveRename(): Promise<void> {
-  if (!previewItem.value) return
-  await window.api.updateClipItemTitle(previewItem.value.id, renameDraft.value || null)
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(previewItem.value.id)
-  renameOpen.value = false
-  showToast('已保存名称')
-}
-
-async function saveTextEdit(): Promise<void> {
-  if (!previewItem.value) return
-  await window.api.updateClipItemText(previewItem.value.id, editText.value)
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(previewItem.value.id)
-  editMode.value = false
-  showToast('已保存文本')
-}
-
-async function saveLinkEdit(): Promise<void> {
-  if (!previewItem.value || previewItem.value.type !== 'link') return
-  await window.api.updateClipItemLink(previewItem.value.id, linkDraft.value)
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(previewItem.value.id)
-  linkEditMode.value = false
-  showToast('已更新链接')
-}
-
-async function saveColor(): Promise<void> {
-  if (!previewItem.value) return
-  await window.api.updateClipItemColor(previewItem.value.id, colorDraft.value)
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(previewItem.value.id)
-  showToast('已更新颜色')
-}
-
-function dataUrlToBase64(dataUrl: string): string {
-  const idx = dataUrl.indexOf(',')
-  return idx >= 0 ? dataUrl.slice(idx + 1) : dataUrl
-}
-
-function loadImage(dataUrl: string): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('Image load failed'))
-    img.src = dataUrl
-  })
-}
-
-async function rotateImage(direction: 'left' | 'right'): Promise<void> {
-  const item = previewItem.value
-  if (!item || item.type !== 'image') return
-
-  const img = await loadImage(`data:image/png;base64,${item.content}`)
-  const canvas = document.createElement('canvas')
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
-
-  canvas.width = img.height
-  canvas.height = img.width
-
-  ctx.translate(canvas.width / 2, canvas.height / 2)
-  ctx.rotate(direction === 'right' ? Math.PI / 2 : -Math.PI / 2)
-  ctx.drawImage(img, -img.width / 2, -img.height / 2)
-
-  const rotatedDataUrl = canvas.toDataURL('image/png')
-  const contentBase64 = dataUrlToBase64(rotatedDataUrl)
-
-  const thumbCanvas = document.createElement('canvas')
-  const thumbCtx = thumbCanvas.getContext('2d')
-  if (!thumbCtx) return
-  const thumbWidth = 320
-  const scale = thumbWidth / canvas.width
-  thumbCanvas.width = thumbWidth
-  thumbCanvas.height = Math.max(1, Math.round(canvas.height * scale))
-  thumbCtx.drawImage(canvas, 0, 0, thumbCanvas.width, thumbCanvas.height)
-  const thumbnailBase64 = dataUrlToBase64(thumbCanvas.toDataURL('image/png'))
-
-  await window.api.updateClipItemImage(item.id, { contentBase64, thumbnailBase64 })
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(item.id)
-  showToast('已旋转图片')
-}
-
-async function extractOcr(mode: 'copy' | 'create'): Promise<void> {
-  const item = previewItem.value
-  if (!item || item.type !== 'image') return
-
-  const result = await window.api.extractImageOcr(item.id, mode)
-  if (!result.text) {
-    showToast('OCR 结果尚未就绪')
-    return
-  }
-
-  await refreshAfterMutation()
-  previewItem.value = await window.api.getClipItem(item.id)
-  showToast(mode === 'copy' ? '已复制 OCR 文字' : '已创建文本条目')
-}
-
-async function quickLook(path: string): Promise<void> {
-  await window.api.quickLookFile(path)
-}
-
-async function pasteImageAsFile(id: string): Promise<void> {
-  await window.api.pasteClipItemAsFile(id)
-  closePreview()
+  setActiveCard(itemId)
+  closeAllMenus()
+  window.api.showPreview(itemId)
 }
 
 function onItemDragStart(event: DragEvent, item: ClipItem): void {
@@ -1186,40 +989,11 @@ async function saveCreatedItem(): Promise<void> {
   showToast(createType.value === 'link' ? '已创建链接条目' : '已创建文本条目')
 }
 
-async function renameFromContext(): Promise<void> {
-  const item = ctxItem.value
-  if (!item) return
-  const next = window.prompt('重命名条目', item.title || '')?.trim()
-  if (next === undefined) return
-  await window.api.updateClipItemTitle(item.id, next || null)
-  await refreshAfterMutation()
-  closeAllMenus()
-}
-
-async function shareFromContext(): Promise<void> {
-  const item = ctxItem.value
-  if (!item) return
-  await window.api.copyClipItem(item.id, { plainText: true })
-  showToast('已复制到剪贴板，可粘贴分享')
-  closeAllMenus()
-}
-
 async function previewFromContext(): Promise<void> {
   const item = ctxItem.value
   if (!item) return
   closeAllMenus()
   await openPreviewById(item.id)
-}
-
-async function deleteFromPreview(): Promise<void> {
-  const item = previewItem.value
-  if (!item) return
-  const ok = window.confirm('确定删除该条目？')
-  if (!ok) return
-  await window.api.deleteClipItem(item.id)
-  await refreshAfterMutation()
-  closePreview()
-  showToast('已删除条目')
 }
 
 async function bulkDelete(): Promise<void> {
@@ -1236,18 +1010,6 @@ async function runClipAction(action: ClipMenuAction): Promise<void> {
   const item = ctxItem.value
   if (!item) return
 
-  if (action === 'paste') {
-    await window.api.pasteClipItem(item.id)
-  }
-  if (action === 'copy') {
-    await window.api.copyClipItem(item.id)
-  }
-  if (action === 'pastePlain') {
-    await window.api.pasteClipItem(item.id, { plainText: true })
-  }
-  if (action === 'pasteFile' && item.type === 'image') {
-    await window.api.pasteClipItemAsFile(item.id)
-  }
   if (action === 'delete') {
     await window.api.deleteClipItem(item.id)
     await refreshAfterMutation()
@@ -1395,32 +1157,6 @@ function onWindowKeyDown(e: KeyboardEvent): void {
     return
   }
 
-  if (previewOpen.value) {
-    if (e.key === 'Escape' || e.key === ' ') {
-      e.preventDefault()
-      closePreview()
-      return
-    }
-
-    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-      if (editMode.value) {
-        e.preventDefault()
-        void saveTextEdit()
-      } else if (linkEditMode.value) {
-        e.preventDefault()
-        void saveLinkEdit()
-      }
-      return
-    }
-
-    if (!typing && e.key === 'Enter' && previewItem.value) {
-      e.preventDefault()
-      void pastePreview(false)
-    }
-
-    return
-  }
-
   if (typing) return
 
   if (panelMode.value === 'stack') {
@@ -1487,6 +1223,10 @@ function onWindowResize(): void {
 
 onMounted(async () => {
   window.addEventListener('hashchange', onHashChange)
+  if (isSettingsRoute.value || isPreviewRoute.value) {
+    return
+  }
+
   const settingsSnapshot = await window.api.getSettingsSnapshot()
   appSettings.value = settingsSnapshot.settings
   applyTheme(settingsSnapshot.settings.general.theme)
@@ -1494,10 +1234,6 @@ onMounted(async () => {
     appSettings.value = snapshot.settings
     applyTheme(snapshot.settings.general.theme)
   })
-
-  if (isSettingsRoute.value) {
-    return
-  }
 
   syncTypeFocus(typeChip.value)
   unsubPanelPreparing = window.api.onPanelPreparing(async (requestId) => {
@@ -1567,6 +1303,7 @@ onBeforeUnmount(() => {
 
 <template>
   <SettingsView v-if="isSettingsRoute" />
+  <PreviewView v-else-if="isPreviewRoute" />
   <div v-else class="app">
     <header class="app-header">
       <div class="header-placeholder" aria-hidden="true"></div>
@@ -1860,19 +1597,6 @@ onBeforeUnmount(() => {
             @click.stop
           >
             <button class="menu-item" @click="previewFromContext()">👁 预览</button>
-            <button class="menu-item" @click="runClipAction('paste')">📋 直接粘贴</button>
-            <button class="menu-item" @click="runClipAction('copy')">📄 复制</button>
-            <button class="menu-item" @click="runClipAction('pastePlain')">Tt 粘贴为纯文本</button>
-            <button
-              v-if="ctxItem?.type === 'image'"
-              class="menu-item"
-              @click="runClipAction('pasteFile')"
-            >
-              ⤴︎ 粘贴为文件
-            </button>
-            <button class="menu-item" @click="renameFromContext()">🏷 重命名</button>
-            <button class="menu-item" @click="shareFromContext()">🔗 分享</button>
-            <div class="menu-sep"></div>
             <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
           </div>
 
@@ -1930,171 +1654,6 @@ onBeforeUnmount(() => {
         <div class="preview-footer">
           <span class="hint">{{ appSettings?.shortcuts.newItem || '⌘N' }} 新建</span>
           <button class="primary-btn" @click="saveCreatedItem()">保存条目</button>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="previewOpen" class="preview-overlay" @click.self="closePreview">
-      <div class="preview-window" @click.stop>
-        <div class="preview-header">
-          <div class="preview-left">
-            <div class="badge">
-              {{ previewItem ? typeLabel(previewItem.type) : '预览' }}
-            </div>
-            <div class="preview-sub">
-              {{
-                previewItem
-                  ? `${previewItem.source_app_name || '未知来源'} · ${formatRelativeTime(
-                      previewItem.created_at
-                    )}`
-                  : ''
-              }}
-            </div>
-          </div>
-
-          <div class="preview-actions">
-            <button class="icon-btn" title="复制" @click="copyPreview(true)">📄</button>
-            <button class="icon-btn" title="粘贴" @click="pastePreview(false)">📋</button>
-            <button
-              v-if="previewItem && (previewItem.type === 'text' || previewItem.type === 'richtext')"
-              class="icon-btn"
-              :class="{ active: editMode }"
-              title="编辑"
-              @click="toggleEdit()"
-            >
-              ✏️
-            </button>
-            <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">
-              💾
-            </button>
-            <button
-              v-if="previewItem?.type === 'link'"
-              class="icon-btn"
-              :class="{ active: linkEditMode }"
-              title="编辑链接"
-              @click="toggleLinkEdit()"
-            >
-              🔗
-            </button>
-            <button v-if="linkEditMode" class="icon-btn" title="保存链接" @click="saveLinkEdit()">
-              💾
-            </button>
-            <button
-              class="icon-btn"
-              :class="{ active: renameOpen }"
-              title="重命名"
-              @click="toggleRename()"
-            >
-              🏷
-            </button>
-            <button class="icon-btn danger" title="删除" @click="deleteFromPreview()">🗑</button>
-            <button class="icon-btn" title="关闭" @click="closePreview()">✕</button>
-          </div>
-        </div>
-
-        <div class="preview-body">
-          <div v-if="previewLoading" class="preview-loading">加载中…</div>
-
-          <template v-else-if="previewItem">
-            <div v-if="renameOpen" class="rename-row">
-              <input v-model="renameDraft" class="rename-input" placeholder="名称（可选）" />
-              <button class="primary-btn" @click="saveRename()">保存</button>
-            </div>
-
-            <template v-if="previewItem.type === 'text' || previewItem.type === 'richtext'">
-              <textarea v-if="editMode" v-model="editText" class="edit-area"></textarea>
-              <pre v-else class="preview-text">{{
-                previewItem.plain_text || previewItem.content
-              }}</pre>
-            </template>
-
-            <template v-else-if="previewItem.type === 'link'">
-              <div v-if="linkEditMode" class="rename-row">
-                <input v-model="linkDraft" class="rename-input" placeholder="https://example.com" />
-                <button class="primary-btn" @click="saveLinkEdit()">保存链接</button>
-              </div>
-              <div v-if="previewLinkMeta" class="link-meta-card">
-                <img
-                  v-if="previewLinkMeta.image"
-                  class="link-thumb"
-                  :src="previewLinkMeta.image"
-                  alt=""
-                />
-                <div class="link-meta-text">
-                  <div class="link-title">{{ previewLinkMeta.title || previewItem.content }}</div>
-                  <div v-if="previewLinkMeta.description" class="link-desc">
-                    {{ previewLinkMeta.description }}
-                  </div>
-                </div>
-              </div>
-              <webview class="webview" :src="previewItem.content"></webview>
-            </template>
-
-            <template v-else-if="previewItem.type === 'image'">
-              <div class="image-preview-lg">
-                <img
-                  :src="`data:image/png;base64,${previewItem.content}`"
-                  alt=""
-                  draggable="true"
-                  @dragstart="onItemDragStart($event, previewItem)"
-                />
-              </div>
-              <div class="image-tools">
-                <button class="tool-btn" @click="rotateImage('left')">⟲</button>
-                <button class="tool-btn" @click="rotateImage('right')">⟳</button>
-                <button class="tool-btn" @click="pasteImageAsFile(previewItem.id)">文件粘贴</button>
-              </div>
-              <div class="ocr-card">
-                <div class="ocr-head">
-                  <span>OCR 识别</span>
-                  <span class="hint">{{ previewItem.ocr_text ? '已完成' : '识别中…' }}</span>
-                </div>
-                <pre v-if="previewItem.ocr_text" class="ocr-text">{{ previewItem.ocr_text }}</pre>
-                <div v-else class="ocr-empty">后台识别完成后会显示在这里</div>
-                <div class="ocr-actions">
-                  <button
-                    class="primary-btn"
-                    :disabled="!previewItem.ocr_text"
-                    @click="extractOcr('copy')"
-                  >
-                    复制文字
-                  </button>
-                  <button
-                    class="tool-btn"
-                    :disabled="!previewItem.ocr_text"
-                    @click="extractOcr('create')"
-                  >
-                    转为文本条目
-                  </button>
-                </div>
-              </div>
-            </template>
-
-            <template v-else-if="previewItem.type === 'color'">
-              <div class="color-preview-lg" :style="{ background: colorDraft }">
-                <div class="color-value">{{ colorDraft }}</div>
-              </div>
-              <div class="color-tools">
-                <input v-model="colorDraft" type="color" class="color-input" />
-                <button class="primary-btn" @click="saveColor()">保存</button>
-              </div>
-            </template>
-
-            <template v-else-if="previewItem.type === 'file'">
-              <div class="file-list">
-                <div v-for="p in getFilePaths(previewItem)" :key="p" class="file-row">
-                  <span>{{ p }}</span>
-                  <button class="tool-btn small" @click="quickLook(p)">Quick Look</button>
-                </div>
-              </div>
-            </template>
-          </template>
-        </div>
-
-        <div class="preview-footer">
-          <span class="hint">空格 / ESC 关闭</span>
-          <span v-if="editMode || linkEditMode" class="hint">⌘S 保存</span>
-          <span class="hint">回车直接粘贴</span>
         </div>
       </div>
     </div>

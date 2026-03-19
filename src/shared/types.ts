@@ -197,7 +197,10 @@ export interface IpcApi {
   // Window
   hideWindow: () => void
   showSettings: () => void
+  showPreview: (itemId: string) => void
+  closeCurrentWindow: () => void
   quitApp: () => void
+  onPreviewItemRequested: (callback: (itemId: string) => void) => () => void
 
   // System
   getAccessibilityPermission: () => Promise<boolean>
