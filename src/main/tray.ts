@@ -17,9 +17,9 @@ const TRAY_ICON_FILES = {
 
 const FALLBACK_TRAY_ICON_BASE64 = {
   active:
-    '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',
+    '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',
   paused:
-    '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'
+    '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'
 } as const
 
 function markTemplateImage(icon: Electron.NativeImage): Electron.NativeImage {
@@ -43,11 +43,30 @@ function resolveTrayIconPath(fileName: string): string | null {
 function createInlineFallbackTrayIcon(paused: boolean): Electron.NativeImage {
   const svg = paused
     ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
-         <path fill="black" fill-rule="evenodd" d="M6.2 2.2C5.206 2.2 4.4 3.006 4.4 4v10c0 .994.806 1.8 1.8 1.8h5.6c.994 0 1.8-.806 1.8-1.8V4c0-.994-.806-1.8-1.8-1.8H6.2Zm1.1 3.7c.497 0 .9.403.9.9v4.4a.9.9 0 1 1-1.8 0V6.8c0-.497.403-.9.9-.9Zm3.4 0c.497 0 .9.403.9.9v4.4a.9.9 0 1 1-1.8 0V6.8c0-.497.403-.9.9-.9Z" clip-rule="evenodd"/>
+         <defs>
+           <mask id="front-paused">
+             <rect width="18" height="18" fill="black"/>
+             <rect x="3.1" y="5.1" width="8.8" height="10.1" rx="2.35" fill="white"/>
+             <rect x="5.25" y="7.2" width="4.5" height="5.9" rx="1.35" fill="black"/>
+             <rect x="8.7" y="3.9" width="4.8" height="4.6" rx="1.2" fill="black"/>
+           </mask>
+         </defs>
+         <rect x="8.35" y="2.7" width="5.45" height="7.15" rx="1.7" fill="black" opacity="0.52"/>
+         <rect x="1.8" y="2.8" width="12.8" height="13.2" rx="3.1" fill="black" mask="url(#front-paused)"/>
+         <rect x="5.95" y="8.3" width="1.2" height="3.9" rx="0.6" fill="black"/>
+         <rect x="8.35" y="8.3" width="1.2" height="3.9" rx="0.6" fill="black"/>
        </svg>`
     : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18">
-         <rect x="6.2" y="2.2" width="8.2" height="9.8" rx="1.8" fill="black" opacity="0.58"/>
-         <rect x="3.6" y="4.4" width="8.8" height="10.2" rx="2" fill="black"/>
+         <defs>
+           <mask id="front-open">
+             <rect width="18" height="18" fill="black"/>
+             <rect x="3.1" y="5.1" width="8.8" height="10.1" rx="2.35" fill="white"/>
+             <rect x="5.25" y="7.2" width="4.5" height="5.9" rx="1.35" fill="black"/>
+             <rect x="8.7" y="3.9" width="4.8" height="4.6" rx="1.2" fill="black"/>
+           </mask>
+         </defs>
+         <rect x="8.35" y="2.7" width="5.45" height="7.15" rx="1.7" fill="black" opacity="0.52"/>
+         <rect x="1.8" y="2.8" width="12.8" height="13.2" rx="3.1" fill="black" mask="url(#front-open)"/>
        </svg>`
 
   return markTemplateImage(

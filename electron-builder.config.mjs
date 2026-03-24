@@ -26,6 +26,7 @@ const config = {
     }
   ],
   mac: {
+    icon: 'build/icon.icns',
     target: [
       {
         target: 'dmg',
