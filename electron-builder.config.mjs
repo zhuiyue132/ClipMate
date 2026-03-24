@@ -19,6 +19,10 @@ const config = {
     {
       from: 'build/generated-resources',
       to: '.'
+    },
+    {
+      from: 'build/tray',
+      to: 'tray'
     }
   ],
   mac: {
