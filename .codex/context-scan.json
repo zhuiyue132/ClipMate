@@ -1,0 +1,142 @@
+{
+  "lastUpdated": "2026-03-26",
+  "project": {
+    "name": "ClipMate",
+    "category": "macOS clipboard manager",
+    "platform": ["macOS"],
+    "stack": {
+      "desktop": "Electron 33",
+      "frontend": "Vue 3",
+      "build": "electron-vite",
+      "database": "better-sqlite3 / SQLite",
+      "packaging": "electron-builder"
+    }
+  },
+  "entrypoints": {
+    "main": "src/main/index.ts",
+    "preload": "src/preload/index.ts",
+    "renderer": "src/renderer/src/App.vue",
+    "sharedContract": "src/shared/types.ts"
+  },
+  "runtimeStorage": {
+    "databasePath": "Electron userData/clipmate.db",
+    "settingsPath": "Electron userData/settings.json",
+    "icloudSyncPath": "~/Library/Mobile Documents/com~apple~CloudDocs/ClipMate/clipmate-history.json"
+  },
+  "mainCapabilities": [
+    "clipboard capture and dedupe",
+    "direct paste and plain text paste",
+    "search with SQLite FTS fallback",
+    "Paste Stack queue",
+    "image OCR via Vision helper or Swift fallback",
+    "link metadata fetch",
+    "iCloud Drive JSON sync",
+    "macOS auto update for packaged app"
+  ],
+  "keyModules": [
+    {
+      "area": "clipboard",
+      "files": [
+        "src/main/clipboard/index.ts",
+        "src/main/clipboard/watcher.ts",
+        "src/main/clipboard/content.ts",
+        "src/main/clipboard/io.ts"
+      ]
+    },
+    {
+      "area": "database",
+      "files": ["src/main/database/index.ts", "src/main/database/clipItems.ts"]
+    },
+    {
+      "area": "windows",
+      "files": [
+        "src/main/windows/mainWindow.ts",
+        "src/main/windows/previewWindow.ts",
+        "src/main/windows/settingsWindow.ts",
+        "src/main/windows/stackDockWindow.ts"
+      ]
+    },
+    {
+      "area": "renderer",
+      "files": [
+        "src/renderer/src/App.vue",
+        "src/renderer/src/PreviewView.vue",
+        "src/renderer/src/SettingsView.vue",
+        "src/renderer/src/StackDockView.vue"
+      ]
+    },
+    {
+      "area": "background features",
+      "files": [
+        "src/main/ocr/worker.ts",
+        "src/main/linkMeta/worker.ts",
+        "src/main/sync/icloudDrive.ts",
+        "src/main/updater/index.ts"
+      ]
+    }
+  ],
+  "changeMap": {
+    "new_clip_type": [
+      "src/shared/types.ts",
+      "src/main/clipboard/content.ts",
+      "src/main/database/index.ts",
+      "src/main/database/clipItems.ts",
+      "src/main/clipboard/io.ts",
+      "src/renderer/src/App.vue",
+      "src/renderer/src/PreviewView.vue"
+    ],
+    "search_or_filters": ["src/main/database/clipItems.ts", "src/renderer/src/App.vue"],
+    "shortcut_changes": [
+      "src/shared/types.ts",
+      "src/main/settings/store.ts",
+      "src/main/shortcuts.ts",
+      "src/renderer/src/SettingsView.vue"
+    ],
+    "panel_performance": [
+      "src/main/index.ts",
+      "src/main/panelSnapshot.ts",
+      "src/main/events.ts",
+      "src/renderer/src/App.vue",
+      "src/main/smoke/panelFlow.ts"
+    ],
+    "release_pipeline": [
+      "electron-builder.config.mjs",
+      "docs/release.md",
+      ".github/workflows/release-mac.yml"
+    ]
+  },
+  "commands": {
+    "dev": "npm run dev",
+    "typecheck": "npm run typecheck",
+    "lint": "npm run lint",
+    "build": "npm run build",
+    "buildUnpack": "npm run build:unpack",
+    "buildMac": "npm run build:mac",
+    "panelSmoke": "CLIPMATE_SMOKE_TEST=1 electron-vite preview"
+  },
+  "docs": {
+    "readme": "README.md",
+    "prd": "docs/prd.md",
+    "todo": "docs/todo.md",
+    "release": "docs/release.md",
+    "openspecSpecs": "openspec/specs",
+    "openspecArchivedChanges": "openspec/changes/archive"
+  },
+  "importantConstraints": [
+    "macOS-only implementation",
+    "paste and app switching rely on osascript/open commands",
+    "renderer main panel logic is concentrated in App.vue",
+    "auto update only works in packaged app",
+    "OCR requires packaged helper or local swift toolchain in development"
+  ],
+  "knownRisks": [
+    "limited automated tests",
+    "screen share hiding still needs real environment validation",
+    "signing/notarization/update flow still depends on real release environment",
+    "iCloud sync conflict handling is last-write-wins only"
+  ],
+  "openspecState": {
+    "hasActiveChange": false,
+    "note": "Only archived changes were found under openspec/changes."
+  }
+}
