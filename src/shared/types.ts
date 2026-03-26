@@ -15,6 +15,25 @@ export interface ClipItem {
   updated_at: number
 }
 
+export interface ClipItemSummary {
+  id: string
+  type: ClipItem['type']
+  title: string | null
+  source_app: string | null
+  source_app_name: string | null
+  plain_text_preview: string | null
+  content_preview: string | null
+  ocr_text_preview: string | null
+  image_preview: string | null
+  link_title: string | null
+  link_description: string | null
+  link_url: string | null
+  file_label: string | null
+  file_count: number | null
+  created_at: number
+  updated_at: number
+}
+
 export interface SearchFilters {
   query?: string
   types?: Array<ClipItem['type']>
@@ -31,9 +50,42 @@ export interface SourceAppSummary {
   count: number
 }
 
+export type HistoryMutationReason =
+  | 'clipboard-capture'
+  | 'clipboard-duplicate'
+  | 'create'
+  | 'update'
+  | 'delete'
+  | 'clear'
+  | 'ocr'
+  | 'link-meta'
+  | 'reset'
+  | 'reconcile'
+  | 'fallback'
+
+export interface HistoryMutationEvent {
+  type: 'reset' | 'upsert' | 'delete' | 'source-apps'
+  reason: HistoryMutationReason
+  items?: ClipItemSummary[]
+  ids?: string[]
+  sourceApps?: SourceAppSummary[]
+}
+
+export interface PanelPerformanceMark {
+  requestId: number
+  name:
+    | 'panel-open-requested'
+    | 'panel-visible'
+    | 'panel-first-snapshot'
+    | 'panel-interactive'
+    | 'clipboard-reconciled'
+  ts: number
+  meta?: Record<string, boolean | number | string | null>
+}
+
 export interface PanelSnapshot {
   paused: boolean
-  historyItems: ClipItem[]
+  historyItems: ClipItemSummary[]
   sourceApps: SourceAppSummary[]
   pasteStackState: PasteStackState
 }
@@ -166,7 +218,8 @@ export interface CreateClipItemInput {
 
 export interface IpcApi {
   // Database
-  getClipItems: (limit?: number, offset?: number) => Promise<ClipItem[]>
+  getClipItems: (limit?: number, offset?: number) => Promise<ClipItemSummary[]>
+  getClipItemSummary: (id: string) => Promise<ClipItemSummary | null>
   getClipItem: (id: string) => Promise<ClipItem | null>
   createClipItem: (input: CreateClipItemInput) => Promise<string>
   updateClipItemTitle: (id: string, title: string | null) => Promise<void>
@@ -184,7 +237,7 @@ export interface IpcApi {
   deleteClipItem: (id: string) => Promise<void>
   deleteClipItems: (ids: string[]) => Promise<void>
   clearHistory: () => Promise<void>
-  searchClipItems: (filters: SearchFilters) => Promise<ClipItem[]>
+  searchClipItems: (filters: SearchFilters) => Promise<ClipItemSummary[]>
   getSourceApps: () => Promise<SourceAppSummary[]>
 
   // Clipboard
@@ -197,10 +250,12 @@ export interface IpcApi {
   startImageDrag: (id: string) => void
   onClipItemsChanged: (callback: () => void) => () => void
   onClipStateChanged: (callback: (state: { paused: boolean }) => void) => () => void
+  onHistoryMutation: (callback: (mutation: HistoryMutationEvent) => void) => () => void
   onPanelPreparing: (callback: (requestId: number) => void | Promise<void>) => () => void
   onPreparePanelShow: (
     callback: (requestId: number, snapshot: PanelSnapshot) => void | Promise<void>
   ) => () => void
+  onPanelPerformanceMark: (callback: (mark: PanelPerformanceMark) => void) => () => void
   getPasteStackState: () => Promise<PasteStackState>
   setPasteStackEnabled: (enabled: boolean) => Promise<void>
   clearPasteStack: () => Promise<void>

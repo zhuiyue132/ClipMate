@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import type { ClipItem, SettingsSnapshot, ThemePreference } from '../../shared/types'
+import type {
+  ClipItem,
+  HistoryMutationEvent,
+  SettingsSnapshot,
+  ThemePreference
+} from '../../shared/types'
 
 const previewItem = ref<ClipItem | null>(null)
 const previewLoading = ref(false)
@@ -17,8 +22,17 @@ let toastTimer: number | null = null
 let loadSeq = 0
 let currentItemId: string | null = null
 let unsubSettings: (() => void) | null = null
-let unsubItems: (() => void) | null = null
+let unsubHistoryMutation: (() => void) | null = null
 let unsubPreviewItem: (() => void) | null = null
+
+function previewItemAffected(mutation: HistoryMutationEvent): boolean {
+  if (!currentItemId) return false
+  if (mutation.type === 'reset') return true
+  if (mutation.type === 'delete') {
+    return (mutation.ids ?? []).includes(currentItemId)
+  }
+  return (mutation.items ?? []).some((item) => item.id === currentItemId)
+}
 
 function applyTheme(theme: ThemePreference): void {
   const root = document.documentElement
@@ -410,8 +424,10 @@ onMounted(async () => {
   unsubSettings = window.api.onSettingsChanged((nextSnapshot) => {
     applyTheme(nextSnapshot.settings.general.theme)
   })
-  unsubItems = window.api.onClipItemsChanged(() => {
-    void refreshPreviewItem(true)
+  unsubHistoryMutation = window.api.onHistoryMutation((mutation) => {
+    if (previewItemAffected(mutation)) {
+      void refreshPreviewItem(true)
+    }
   })
   unsubPreviewItem = window.api.onPreviewItemRequested((itemId) => {
     editMode.value = false
@@ -432,7 +448,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unsubSettings?.()
-  unsubItems?.()
+  unsubHistoryMutation?.()
   unsubPreviewItem?.()
   window.removeEventListener('keydown', onWindowKeyDown)
   if (toastTimer) {

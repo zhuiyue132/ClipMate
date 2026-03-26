@@ -27,6 +27,8 @@ import { getFrontmostAppInfo } from './system/frontmostApp'
 import { startOcrWorker, stopOcrWorker } from './ocr'
 import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 import { buildPanelSnapshot } from './panelSnapshot'
+import { broadcastPanelPerformanceMark } from './events'
+import { runPanelSmokeTest } from './smoke/panelFlow'
 import {
   configurePasteStackPasteShortcut,
   getShortcutRegistrationState,
@@ -56,6 +58,25 @@ import {
 
 let tray: Tray | null = null
 let pendingShowRequestId = 0
+const SMOKE_TEST_ENABLED = process.env.CLIPMATE_SMOKE_TEST === '1'
+
+function emitPanelPerformanceMark(
+  requestId: number,
+  name:
+    | 'panel-open-requested'
+    | 'panel-visible'
+    | 'panel-first-snapshot'
+    | 'panel-interactive'
+    | 'clipboard-reconciled',
+  meta?: Record<string, boolean | number | string | null>
+): void {
+  broadcastPanelPerformanceMark({
+    requestId,
+    name,
+    ts: Date.now(),
+    meta
+  })
+}
 
 function configureMacAppPresentation(): void {
   if (process.platform !== 'darwin') return
@@ -148,18 +169,27 @@ async function showMainWindowFromCurrentApp(): Promise<void> {
 
   const win = getMainWindow()
   if (!win || win.isDestroyed()) return
+
+  emitPanelPerformanceMark(requestId, 'panel-open-requested')
   win.webContents.send('window:panelPreparing', requestId)
-  showMainWindow()
-
-  win.webContents.send('window:preparePanelShow', requestId, buildPanelSnapshot())
-
-  await captureClipboardBeforePanelShow()
-
-  if (requestId !== pendingShowRequestId) return
-  if (win.isDestroyed() || !win.isVisible()) return
-
   const snapshot = buildPanelSnapshot()
+  showMainWindow()
+  emitPanelPerformanceMark(requestId, 'panel-visible')
+
   win.webContents.send('window:preparePanelShow', requestId, snapshot)
+  emitPanelPerformanceMark(requestId, 'panel-first-snapshot', {
+    historyCount: snapshot.historyItems.length
+  })
+  emitPanelPerformanceMark(requestId, 'panel-interactive')
+
+  void (async () => {
+    await captureClipboardBeforePanelShow()
+
+    if (requestId !== pendingShowRequestId) return
+    if (win.isDestroyed() || !win.isVisible()) return
+
+    emitPanelPerformanceMark(requestId, 'clipboard-reconciled')
+  })()
 }
 
 function toggleMainWindowFromCurrentApp(): void {
@@ -235,6 +265,18 @@ app.whenReady().then(() => {
   startClipboardWatcher()
   startOcrWorker()
   startLinkMetaWorker()
+
+  if (SMOKE_TEST_ENABLED) {
+    setTimeout(() => {
+      void runPanelSmokeTest({
+        openPanel: showMainWindowFromCurrentApp,
+        getMainWindow
+      }).catch((error) => {
+        console.error('[smoke] panel flow failed', error)
+        app.exit(1)
+      })
+    }, 500)
+  }
 
   app.on('activate', () => {
     if (!getMainWindow() || getMainWindow()?.isDestroyed()) {

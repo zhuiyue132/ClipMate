@@ -20,12 +20,13 @@ function isExcludedApp(bundleId: string | null): boolean {
 }
 
 export class ClipboardWatcher {
-  private intervalId: NodeJS.Timeout | null = null
+  private timerId: NodeJS.Timeout | null = null
   private paused = false
   private lastSeenSignature: string | null = null
   private lastSaved: { id: string; signature: string } | null = null
   private pendingSignature: string | null = null
   private ignoreUntil = 0
+  private boostUntil = 0
 
   constructor(
     private readonly pollMs: number,
@@ -33,20 +34,17 @@ export class ClipboardWatcher {
   ) {}
 
   start(): void {
-    if (this.intervalId) return
+    if (this.timerId) return
 
     this.primeLastSaved()
+    this.boostActivity(1200)
     this.poll()
-
-    this.intervalId = setInterval(() => {
-      this.poll()
-    }, this.pollMs)
   }
 
   stop(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId)
-      this.intervalId = null
+    if (this.timerId) {
+      clearTimeout(this.timerId)
+      this.timerId = null
     }
   }
 
@@ -59,11 +57,13 @@ export class ClipboardWatcher {
   }
 
   captureNow(): void {
+    this.boostActivity(1500)
     this.poll()
   }
 
   suppressCapture(ms: number): void {
     this.ignoreUntil = Math.max(this.ignoreUntil, Date.now() + ms)
+    this.boostActivity(Math.max(ms, 1200))
   }
 
   rememberClipboardWrite(itemId?: string | null): void {
@@ -78,6 +78,7 @@ export class ClipboardWatcher {
 
     this.lastSeenSignature = signature
     this.pendingSignature = null
+    this.boostActivity(1800)
     if (itemId) {
       this.lastSaved = { id: itemId, signature }
     }
@@ -90,11 +91,38 @@ export class ClipboardWatcher {
     }
   }
 
+  private activePollMs(): number {
+    return Math.max(120, Math.floor(this.pollMs * 0.65))
+  }
+
+  private idlePollMs(): number {
+    return Math.max(540, this.pollMs * 3)
+  }
+
+  private boostActivity(ms = 1500): void {
+    this.boostUntil = Math.max(this.boostUntil, Date.now() + ms)
+  }
+
+  private nextDelayMs(): number {
+    return Date.now() < this.boostUntil ? this.activePollMs() : this.idlePollMs()
+  }
+
+  private scheduleNextPoll(delayMs = this.nextDelayMs()): void {
+    if (this.timerId) {
+      clearTimeout(this.timerId)
+    }
+    this.timerId = setTimeout(() => {
+      this.poll()
+    }, delayMs)
+  }
+
   private poll(): void {
     try {
       this.tick()
     } catch (error) {
       console.error('[clipboard] failed to capture clipboard content', error)
+    } finally {
+      this.scheduleNextPoll()
     }
   }
 
@@ -117,6 +145,8 @@ export class ClipboardWatcher {
       this.pendingSignature = null
       return
     }
+
+    this.boostActivity(1800)
 
     if (sig !== this.pendingSignature) {
       this.pendingSignature = sig

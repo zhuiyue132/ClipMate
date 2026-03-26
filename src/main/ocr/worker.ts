@@ -5,7 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { getDatabase } from '../database'
-import { broadcastClipItemsChanged } from '../events'
+import {
+  getClipItemSummaryById,
+  getSourceAppSummaries,
+  updateClipItemOcrText
+} from '../database/clipItems'
+import { broadcastHistoryUpsert } from '../events'
 
 const execFileAsync = promisify(execFile)
 
@@ -121,13 +126,11 @@ async function tickOnce(): Promise<void> {
       }
     }
 
-    db.prepare('UPDATE clip_items SET ocr_text = ?, updated_at = ? WHERE id = ?').run(
-      text,
-      Date.now(),
-      row.id
-    )
-
-    broadcastClipItemsChanged()
+    updateClipItemOcrText(row.id, text)
+    const summary = getClipItemSummaryById(row.id)
+    if (summary) {
+      broadcastHistoryUpsert([summary], getSourceAppSummaries(), 'ocr')
+    }
   } finally {
     running = false
   }

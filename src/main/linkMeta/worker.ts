@@ -1,7 +1,12 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { getDatabase } from '../database'
-import { broadcastClipItemsChanged } from '../events'
+import {
+  getClipItemSummaryById,
+  getSourceAppSummaries,
+  updateClipItemLinkMeta
+} from '../database/clipItems'
+import { broadcastHistoryUpsert } from '../events'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,8 +63,6 @@ async function fetchHtml(url: string): Promise<string> {
 }
 
 async function fetchAndStoreLinkMeta(id: string, url: string): Promise<void> {
-  const db = getDatabase()
-
   let meta: { title?: string; description?: string; image?: string } = {}
   try {
     const html = await fetchHtml(url)
@@ -75,13 +78,11 @@ async function fetchAndStoreLinkMeta(id: string, url: string): Promise<void> {
     meta = {}
   }
 
-  db.prepare('UPDATE clip_items SET link_meta = ?, updated_at = ? WHERE id = ?').run(
-    JSON.stringify(meta),
-    Date.now(),
-    id
-  )
-
-  broadcastClipItemsChanged()
+  updateClipItemLinkMeta(id, JSON.stringify(meta))
+  const summary = getClipItemSummaryById(id)
+  if (summary) {
+    broadcastHistoryUpsert([summary], getSourceAppSummaries(), 'link-meta')
+  }
 }
 
 export async function refreshLinkMetaForItem(id: string): Promise<void> {

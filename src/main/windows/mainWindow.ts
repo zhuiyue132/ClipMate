@@ -5,11 +5,9 @@ let mainWindow: BrowserWindow | null = null
 
 const MAIN_WINDOW_HEIGHT = 384
 const MAIN_WINDOW_SHOW_MS = 132
-const MAIN_WINDOW_HIDE_MS = 96
-const MAIN_WINDOW_TICK_MS = 1000 / 120
+const MAIN_WINDOW_HIDE_MS = 108
 
-let mainWindowAnimationTimer: NodeJS.Timeout | null = null
-let mainWindowAnimationId = 0
+let mainWindowTransitionTimer: NodeJS.Timeout | null = null
 let mainWindowAnimationState: 'hidden' | 'showing' | 'visible' | 'hiding' = 'hidden'
 
 function resolveMainWindowDisplay() {
@@ -40,54 +38,11 @@ function getBottomPanelBounds(hidden = false) {
   }
 }
 
-function stopMainWindowAnimation(): void {
-  if (mainWindowAnimationTimer) {
-    clearTimeout(mainWindowAnimationTimer)
-    mainWindowAnimationTimer = null
+function clearMainWindowTransitionTimer(): void {
+  if (mainWindowTransitionTimer) {
+    clearTimeout(mainWindowTransitionTimer)
+    mainWindowTransitionTimer = null
   }
-
-  mainWindowAnimationId += 1
-}
-
-function animateMainWindow(
-  targetBounds: Electron.Rectangle,
-  direction: 'show' | 'hide',
-  onDone?: () => void
-): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return
-
-  stopMainWindowAnimation()
-
-  const animationId = mainWindowAnimationId
-  const startBounds = mainWindow.getBounds()
-  const startOpacity = mainWindow.getOpacity()
-  const targetOpacity = direction === 'show' ? 1 : 0
-  const duration = direction === 'show' ? MAIN_WINDOW_SHOW_MS : MAIN_WINDOW_HIDE_MS
-  const startedAt = Date.now()
-
-  const tick = (): void => {
-    if (!mainWindow || mainWindow.isDestroyed() || animationId !== mainWindowAnimationId) {
-      return
-    }
-
-    const progress = Math.min((Date.now() - startedAt) / duration, 1)
-    const eased = 1 - Math.pow(1 - progress, 3)
-    const nextY = Math.round(startBounds.y + (targetBounds.y - startBounds.y) * eased)
-    const nextOpacity = startOpacity + (targetOpacity - startOpacity) * eased
-
-    mainWindow.setPosition(targetBounds.x, nextY, false)
-    mainWindow.setOpacity(Math.max(0, Math.min(1, nextOpacity)))
-
-    if (progress >= 1) {
-      mainWindowAnimationTimer = null
-      onDone?.()
-      return
-    }
-
-    mainWindowAnimationTimer = setTimeout(tick, MAIN_WINDOW_TICK_MS)
-  }
-
-  tick()
 }
 
 export function createMainWindow(): BrowserWindow {
@@ -132,38 +87,46 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 export function showMainWindow(): void {
-  if (!mainWindow) return
+  if (!mainWindow || mainWindow.isDestroyed()) return
+
+  clearMainWindowTransitionTimer()
 
   const hiddenBounds = getBottomPanelBounds(true)
   const visibleBounds = getBottomPanelBounds(false)
 
   if (!mainWindow.isVisible()) {
     mainWindow.setBounds(hiddenBounds, false)
-    mainWindow.setOpacity(0)
     mainWindow.show()
   }
 
   mainWindow.focus()
   mainWindowAnimationState = 'showing'
-  animateMainWindow(visibleBounds, 'show', () => {
+  mainWindow.setBounds(visibleBounds, true)
+  mainWindowTransitionTimer = setTimeout(() => {
+    mainWindowTransitionTimer = null
+    if (!mainWindow || mainWindow.isDestroyed()) return
     mainWindowAnimationState = 'visible'
-  })
+  }, MAIN_WINDOW_SHOW_MS)
 }
 
 export function hideMainWindow(): void {
-  if (!mainWindow || !mainWindow.isVisible()) return
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible()) return
   if (mainWindowAnimationState === 'hiding') return
+
+  clearMainWindowTransitionTimer()
 
   const hiddenBounds = getBottomPanelBounds(true)
   mainWindowAnimationState = 'hiding'
-  animateMainWindow(hiddenBounds, 'hide', () => {
+  mainWindow.setBounds(hiddenBounds, true)
+  mainWindowTransitionTimer = setTimeout(() => {
+    mainWindowTransitionTimer = null
     if (!mainWindow || mainWindow.isDestroyed()) return
+    if (mainWindowAnimationState !== 'hiding') return
 
     mainWindow.hide()
-    mainWindow.setOpacity(1)
     mainWindow.setBounds(hiddenBounds, false)
     mainWindowAnimationState = 'hidden'
-  })
+  }, MAIN_WINDOW_HIDE_MS)
 }
 
 export function toggleMainWindow(): void {

@@ -1,10 +1,16 @@
 import { clipboard, Notification } from 'electron'
-import { getClipItemById, getClipItemsByIds, getLatestClipItemRecord } from '../database/clipItems'
+import {
+  getClipItemById,
+  getClipItemSummaryById,
+  getClipItemsByIds,
+  getLatestClipItemRecord,
+  getSourceAppSummaries
+} from '../database/clipItems'
 import { getMainWindow, syncStackDockWindow } from '../windows'
 import { activateApp, sendCmdVKeystroke, type FrontmostAppInfo } from '../system/frontmostApp'
 import type { PasteStackState } from '../../shared/types'
 import {
-  broadcastClipItemsChanged,
+  broadcastHistoryUpsert,
   broadcastClipStateChanged,
   broadcastPasteStackChanged
 } from '../events'
@@ -26,6 +32,15 @@ let burstTimeoutId: NodeJS.Timeout | null = null
 let burstResolve: (() => void) | null = null
 const pasteStack = new PasteStackManager(notifyStackChanged)
 const clipboardStateListeners = new Set<(paused: boolean) => void>()
+
+function broadcastHistoryUpsertById(
+  id: string,
+  reason: 'clipboard-capture' | 'clipboard-duplicate' | 'reconcile'
+): void {
+  const summary = getClipItemSummaryById(id)
+  if (!summary) return
+  broadcastHistoryUpsert([summary], getSourceAppSummaries(), reason)
+}
 
 function notifyStackChanged(): void {
   const state = pasteStack.getState()
@@ -77,8 +92,8 @@ function stopClipboardCaptureBurst(): void {
 
 export function startClipboardWatcher(): void {
   if (watcher) return
-  watcher = new ClipboardWatcher(220, ({ id }) => {
-    broadcastClipItemsChanged()
+  watcher = new ClipboardWatcher(220, ({ id, isDuplicate }) => {
+    broadcastHistoryUpsertById(id, isDuplicate ? 'clipboard-duplicate' : 'clipboard-capture')
     pasteStack.enqueue(id)
   })
   watcher.start()

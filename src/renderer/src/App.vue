@@ -6,8 +6,10 @@ import StackDockView from './StackDockView.vue'
 import type {
   AppSettings,
   AppIconTarget,
-  ClipItem,
+  ClipItemSummary,
+  HistoryMutationEvent,
   PanelSnapshot,
+  PanelPerformanceMark,
   PasteStackState,
   SearchFilters,
   SettingsSnapshot,
@@ -18,6 +20,7 @@ import type {
 type ClipMenuAction = 'delete'
 type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 type DatePreset = 'all' | 'today' | 'week' | 'custom'
+type HistoryCardItem = ClipItemSummary
 const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'text', label: '文本' },
@@ -34,7 +37,7 @@ const isPreviewRoute = computed(() => routeHash.value.startsWith('#/preview'))
 const isStackDockRoute = computed(() => routeHash.value.startsWith('#/stack-dock'))
 const appSettings = ref<AppSettings | null>(null)
 
-const historyItems = ref<ClipItem[]>([])
+const historyItems = ref<HistoryCardItem[]>([])
 const paused = ref(false)
 const loading = ref(false)
 
@@ -50,7 +53,7 @@ const datePreset = ref<DatePreset>('all')
 const customFrom = ref('')
 const customTo = ref('')
 
-const searchResults = ref<ClipItem[] | null>(null)
+const searchResults = ref<HistoryCardItem[] | null>(null)
 const searching = ref(false)
 
 const activeCardId = ref<string | null>(null)
@@ -79,7 +82,7 @@ let activeCardScrollFrame: number | null = null
 const ctxOpen = ref(false)
 const ctxX = ref(0)
 const ctxY = ref(0)
-const ctxItem = ref<ClipItem | null>(null)
+const ctxItem = ref<HistoryCardItem | null>(null)
 
 const historyCardsRef = ref<HTMLElement | null>(null)
 const searchInputRef = ref<HTMLInputElement | null>(null)
@@ -89,6 +92,7 @@ const panelPreparing = ref(false)
 const appIcons = ref<Record<string, string | null>>({})
 const appIconFailures = ref<Record<string, true>>({})
 const resolvedSearchKey = ref<string | null>(null)
+const panelPerformanceMarks = ref<PanelPerformanceMark[]>([])
 const cardRefs = new Map<string, HTMLElement>()
 const cardsViewportWidth = ref(0)
 const cardsViewportScrollLeft = ref(0)
@@ -172,7 +176,7 @@ const isSearchActive = computed(() => {
   )
 })
 
-function itemMatchesActiveFilters(item: ClipItem): boolean {
+function itemMatchesActiveFilters(item: HistoryCardItem): boolean {
   const allowedTypes = typesForChip(typeChip.value)
   if (allowedTypes.length > 0 && !allowedTypes.includes(item.type)) return false
 
@@ -469,7 +473,7 @@ function formatRelativeTime(ts: number): string {
   return `${day} 天前`
 }
 
-function typeLabel(type: ClipItem['type']): string {
+function typeLabel(type: HistoryCardItem['type']): string {
   switch (type) {
     case 'text':
       return '文本'
@@ -488,40 +492,20 @@ function typeLabel(type: ClipItem['type']): string {
   }
 }
 
-function clipItemTitle(item: ClipItem): string {
+function clipItemTitle(item: HistoryCardItem): string {
   return item.title?.trim() ?? ''
 }
 
-function parseLinkMeta(item: ClipItem): { title?: string; description?: string } | null {
-  if (item.type !== 'link' || !item.link_meta) return null
-  try {
-    return JSON.parse(item.link_meta) as { title?: string; description?: string }
-  } catch {
-    return null
-  }
-}
-
-function previewSourceText(item: ClipItem): string {
+function previewSourceText(item: HistoryCardItem): string {
   if (item.type === 'image') return '图片'
-  if (item.type === 'file') {
-    try {
-      const parsed = JSON.parse(item.content) as { paths?: string[] }
-      const name = parsed.paths?.[0]?.split('/').pop()
-      return name || '文件'
-    } catch {
-      return item.plain_text || '文件'
-    }
+  if (item.type === 'file') return item.file_label || item.content_preview || '文件'
+  if (item.type === 'link') {
+    return item.link_title || item.content_preview || item.link_url || ''
   }
-
-  const meta = parseLinkMeta(item)
-  if (item.type === 'link' && meta?.title) {
-    return meta.title
-  }
-
-  return item.plain_text || item.content || ''
+  return item.content_preview || item.plain_text_preview || ''
 }
 
-function previewText(item: ClipItem): string {
+function previewText(item: HistoryCardItem): string {
   return previewSourceText(item).slice(0, 80)
 }
 
@@ -549,7 +533,7 @@ function searchSnippet(text: string, radius = 44): string {
   return `${prefix}${source.slice(start, end)}${suffix}`
 }
 
-function cardPreviewHtml(item: ClipItem): string {
+function cardPreviewHtml(item: HistoryCardItem): string {
   const source = hasRemoteSearchQuery.value
     ? searchSnippet(previewSourceText(item), 52)
     : previewText(item)
@@ -557,35 +541,39 @@ function cardPreviewHtml(item: ClipItem): string {
 }
 
 function cardSearchContextLines(
-  item: ClipItem
+  item: HistoryCardItem
 ): Array<{ key: string; label: string; html: string }> {
   if (!hasRemoteSearchQuery.value) return []
 
   const lines: Array<{ key: string; label: string; html: string }> = []
-  const meta = parseLinkMeta(item)
   const primarySource = previewSourceText(item)
 
-  if (item.ocr_text && includesSearchQuery(item.ocr_text)) {
+  if (item.ocr_text_preview && includesSearchQuery(item.ocr_text_preview)) {
     lines.push({
       key: `${item.id}:ocr`,
       label: 'OCR',
-      html: highlight(searchSnippet(item.ocr_text, 36))
+      html: highlight(searchSnippet(item.ocr_text_preview, 36))
     })
   }
 
-  if (meta?.description && includesSearchQuery(meta.description)) {
+  if (item.link_description && includesSearchQuery(item.link_description)) {
     lines.push({
       key: `${item.id}:meta-description`,
       label: '描述',
-      html: highlight(searchSnippet(meta.description, 36))
+      html: highlight(searchSnippet(item.link_description, 36))
     })
   }
 
-  if (item.type === 'link' && item.content !== primarySource && includesSearchQuery(item.content)) {
+  if (
+    item.type === 'link' &&
+    item.link_url &&
+    item.link_url !== primarySource &&
+    includesSearchQuery(item.link_url)
+  ) {
     lines.push({
       key: `${item.id}:url`,
       label: 'URL',
-      html: highlight(searchSnippet(item.content, 32))
+      html: highlight(searchSnippet(item.link_url, 32))
     })
   }
 
@@ -596,30 +584,30 @@ function appIconKey(target: AppIconTarget): string {
   return `${target.bundleId ?? ''}|${target.name ?? ''}`
 }
 
-function appIconKeyForItem(item: ClipItem): string {
+function appIconKeyForItem(item: HistoryCardItem): string {
   return appIconKey(appIconTargetForItem(item))
 }
 
-function appIconTargetForItem(item: ClipItem): AppIconTarget {
+function appIconTargetForItem(item: HistoryCardItem): AppIconTarget {
   return {
     bundleId: item.source_app,
     name: item.source_app_name
   }
 }
 
-function appIconSrc(item: ClipItem): string | null {
+function appIconSrc(item: HistoryCardItem): string | null {
   const key = appIconKeyForItem(item)
   if (appIconFailures.value[key]) return null
   const src = appIcons.value[key]
   return typeof src === 'string' && src.startsWith('data:image/') ? src : null
 }
 
-function appIconInitial(item: ClipItem): string {
+function appIconInitial(item: HistoryCardItem): string {
   const label = (item.source_app_name || item.source_app || 'App').trim()
   return (label.charAt(0) || 'A').toUpperCase()
 }
 
-function markAppIconFailed(item: ClipItem): void {
+function markAppIconFailed(item: HistoryCardItem): void {
   const key = appIconKeyForItem(item)
   if (appIconFailures.value[key]) return
   appIconFailures.value = {
@@ -628,7 +616,7 @@ function markAppIconFailed(item: ClipItem): void {
   }
 }
 
-async function ensureVisibleAppIcons(items: ClipItem[]): Promise<void> {
+async function ensureVisibleAppIcons(items: HistoryCardItem[]): Promise<void> {
   const missingTargets = new Map<string, AppIconTarget>()
   for (const item of items) {
     const target = appIconTargetForItem(item)
@@ -687,26 +675,30 @@ function highlight(text: string): string {
   return out
 }
 
-function imageSrc(item: ClipItem): string | null {
+function imageSrc(item: HistoryCardItem): string | null {
   if (item.type !== 'image') return null
-  return `data:image/png;base64,${item.content}`
+  return item.image_preview
 }
 
-function canInlineEdit(item: ClipItem): boolean {
+function canInlineEdit(item: HistoryCardItem): boolean {
   return item.type === 'text' || item.type === 'richtext'
 }
 
-function isInlineEditing(item: ClipItem): boolean {
+function isInlineEditing(item: HistoryCardItem): boolean {
   return inlineEditingId.value === item.id
 }
 
-function beginInlineEdit(item: ClipItem): void {
+async function beginInlineEdit(item: HistoryCardItem): Promise<void> {
   if (!canInlineEdit(item)) return
   closeAllMenus()
   clearSelection()
   setActiveCard(item.id)
   inlineEditingId.value = item.id
-  inlineEditDraft.value = item.plain_text ?? item.content ?? ''
+  inlineEditDraft.value = item.plain_text_preview ?? item.content_preview ?? ''
+
+  const fullItem = await window.api.getClipItem(item.id)
+  if (inlineEditingId.value !== item.id || !fullItem) return
+  inlineEditDraft.value = fullItem.plain_text ?? fullItem.content ?? ''
 }
 
 function cancelInlineEdit(): void {
@@ -722,7 +714,7 @@ async function saveInlineEdit(): Promise<void> {
   inlineEditSaving.value = true
   try {
     await window.api.updateClipItemText(itemId, inlineEditDraft.value)
-    await refreshAfterMutation()
+    await refreshSummaryById(itemId)
     setActiveCard(itemId)
     cancelInlineEdit()
     showToast('已在列表中保存文本')
@@ -750,27 +742,108 @@ function onInlineEditorKeyDown(event: KeyboardEvent): void {
 }
 
 async function refreshHistoryItems(): Promise<void> {
-  loading.value = true
-  try {
-    historyItems.value = await window.api.getClipItems(200, 0)
-  } finally {
-    loading.value = false
-  }
+  historyItems.value = await window.api.getClipItems(200, 0)
 }
 
 async function refreshSourceApps(): Promise<void> {
   sourceApps.value = await window.api.getSourceApps()
 }
 
-async function refreshAfterMutation(): Promise<void> {
-  await Promise.all([refreshSourceApps(), refreshHistoryItems()])
-  if (isSearchActive.value) {
-    await runSearch()
+function sortHistoryItems(items: HistoryCardItem[]): HistoryCardItem[] {
+  return [...items].sort((left, right) => {
+    if (right.created_at !== left.created_at) {
+      return right.created_at - left.created_at
+    }
+    return right.updated_at - left.updated_at
+  })
+}
+
+function upsertHistoryItems(items: HistoryCardItem[]): void {
+  if (items.length === 0) return
+  const next = new Map(historyItems.value.map((item) => [item.id, item]))
+  for (const item of items) {
+    next.set(item.id, item)
+  }
+  historyItems.value = sortHistoryItems(Array.from(next.values()))
+}
+
+function removeHistoryItems(ids: string[]): void {
+  if (ids.length === 0) return
+  const removed = new Set(ids)
+  historyItems.value = historyItems.value.filter((item) => !removed.has(item.id))
+  searchResults.value = searchResults.value?.filter((item) => !removed.has(item.id)) ?? null
+  selectedIds.value = selectedIds.value.filter((id) => !removed.has(id))
+  if (anchorId.value && removed.has(anchorId.value)) {
+    anchorId.value = null
+  }
+  if (ctxItem.value && removed.has(ctxItem.value.id)) {
+    closeAllMenus()
   }
 }
 
+function recordPanelPerformanceMark(mark: PanelPerformanceMark): void {
+  panelPerformanceMarks.value = [...panelPerformanceMarks.value.slice(-11), mark]
+  console.debug('[panel-performance]', mark.name, mark)
+}
+
+function applyHistoryMutation(mutation: HistoryMutationEvent): void {
+  switch (mutation.type) {
+    case 'reset':
+      historyItems.value = sortHistoryItems(mutation.items ?? [])
+      if (mutation.sourceApps) {
+        sourceApps.value = mutation.sourceApps
+      }
+      break
+    case 'upsert':
+      upsertHistoryItems(mutation.items ?? [])
+      if (mutation.sourceApps) {
+        sourceApps.value = mutation.sourceApps
+      }
+      break
+    case 'delete':
+      removeHistoryItems(mutation.ids ?? [])
+      if (mutation.sourceApps) {
+        sourceApps.value = mutation.sourceApps
+      }
+      break
+    case 'source-apps':
+      if (mutation.sourceApps) {
+        sourceApps.value = mutation.sourceApps
+      }
+      break
+  }
+
+  if (hasRemoteSearchQuery.value) {
+    void runSearch()
+  }
+}
+
+async function refreshSummaryById(id: string): Promise<void> {
+  const [item, apps] = await Promise.all([
+    window.api.getClipItemSummary(id),
+    window.api.getSourceApps()
+  ])
+  if (!item) return
+  applyHistoryMutation({
+    type: 'upsert',
+    reason: 'update',
+    items: [item],
+    sourceApps: apps
+  })
+}
+
 async function refreshVisibleState(): Promise<void> {
-  await Promise.all([refreshState(), refreshPasteStack(), refreshAfterMutation()])
+  loading.value = true
+  try {
+    await Promise.all([
+      refreshState(),
+      refreshPasteStack(),
+      refreshSourceApps(),
+      refreshHistoryItems()
+    ])
+  } finally {
+    loading.value = false
+  }
   if (!isSearchActive.value) {
     await nextTick()
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
@@ -780,7 +853,7 @@ async function refreshVisibleState(): Promise<void> {
 
 function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   paused.value = snapshot.paused
-  historyItems.value = snapshot.historyItems
+  historyItems.value = sortHistoryItems(snapshot.historyItems)
   sourceApps.value = snapshot.sourceApps
   pasteStackState.value = snapshot.pasteStackState
   if (!resetUi) return
@@ -830,7 +903,7 @@ function getWeekStartTs(date: Date): number {
   return d.getTime()
 }
 
-function typesForChip(chip: TypeChip): Array<ClipItem['type']> {
+function typesForChip(chip: TypeChip): Array<HistoryCardItem['type']> {
   if (chip === 'all') return []
   if (chip === 'text') return ['text', 'richtext']
   if (chip === 'image') return ['image']
@@ -985,12 +1058,12 @@ function selectRange(toId: string): void {
   selectedIds.value = items.slice(start, end + 1).map((i) => i.id)
 }
 
-async function onCardClick(item: ClipItem): Promise<void> {
+async function onCardClick(item: HistoryCardItem): Promise<void> {
   setActiveCard(item.id)
   await window.api.pasteClipItem(item.id)
 }
 
-function onItemClick(ev: MouseEvent, item: ClipItem): void {
+function onItemClick(ev: MouseEvent, item: HistoryCardItem): void {
   if (isInlineEditing(item)) return
   if (inlineEditingId.value && inlineEditingId.value !== item.id) {
     cancelInlineEdit()
@@ -1011,15 +1084,15 @@ function onItemClick(ev: MouseEvent, item: ClipItem): void {
   void onCardClick(item)
 }
 
-function onItemMouseEnter(item: ClipItem): void {
+function onItemMouseEnter(item: HistoryCardItem): void {
   hoveredId.value = item.id
 }
 
-function onItemMouseLeave(item: ClipItem): void {
+function onItemMouseLeave(item: HistoryCardItem): void {
   if (hoveredId.value === item.id) hoveredId.value = null
 }
 
-function openClipContextMenu(ev: MouseEvent, item: ClipItem): void {
+function openClipContextMenu(ev: MouseEvent, item: HistoryCardItem): void {
   ev.preventDefault()
   setActiveCard(item.id)
   ctxItem.value = item
@@ -1058,7 +1131,7 @@ async function bulkAddToPasteStack(): Promise<void> {
   showToast(added > 0 ? `已将 ${added} 项加入 Paste Stack` : '没有可加入的条目')
 }
 
-function onItemDragStart(event: DragEvent, item: ClipItem): void {
+function onItemDragStart(event: DragEvent, item: HistoryCardItem): void {
   if (item.type !== 'image') {
     event.preventDefault()
     return
@@ -1096,7 +1169,7 @@ async function saveCreatedItem(): Promise<void> {
     content
   })
 
-  await refreshAfterMutation()
+  await refreshSummaryById(id)
   setActiveCard(id)
   closeCreateDialog()
   showToast(createType.value === 'link' ? '已创建链接条目' : '已创建文本条目')
@@ -1114,7 +1187,6 @@ async function bulkDelete(): Promise<void> {
   const ok = window.confirm(`确定删除选中的 ${selectedIds.value.length} 项？`)
   if (!ok) return
   await window.api.deleteClipItems(selectedIds.value)
-  await refreshAfterMutation()
   clearSelection()
   showToast('已删除所选条目')
 }
@@ -1125,7 +1197,6 @@ async function runClipAction(action: ClipMenuAction): Promise<void> {
 
   if (action === 'delete') {
     await window.api.deleteClipItem(item.id)
-    await refreshAfterMutation()
   }
 
   closeAllMenus()
@@ -1137,7 +1208,6 @@ async function togglePaused(): Promise<void> {
 
 async function clearHistory(): Promise<void> {
   await window.api.clearHistory()
-  await refreshAfterMutation()
   closeAllMenus()
 }
 
@@ -1150,11 +1220,12 @@ function quitApp(): void {
   window.api.quitApp()
 }
 
-let unsubItems: (() => void) | null = null
+let unsubHistoryMutation: (() => void) | null = null
 let unsubState: (() => void) | null = null
 let unsubStack: (() => void) | null = null
 let unsubPanelPreparing: (() => void) | null = null
 let unsubPreparePanel: (() => void) | null = null
+let unsubPanelPerformance: (() => void) | null = null
 let unsubSettings: (() => void) | null = null
 let panelPreparingTimer: number | null = null
 let currentPanelRequestId: number | null = null
@@ -1177,6 +1248,10 @@ watch(search, () => {
     return
   }
   scheduleSearch()
+  void nextTick(() => {
+    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+    updateCardsViewportMetrics()
+  })
 })
 
 watch([typeChip, sourceAppFilter, datePreset, customFrom, customTo], () => {
@@ -1186,21 +1261,17 @@ watch([typeChip, sourceAppFilter, datePreset, customFrom, customTo], () => {
   }
   if (!hasRemoteSearchQuery.value) {
     resetRemoteSearchState()
-    return
+  } else {
+    void runSearch()
   }
-  void runSearch()
+  void nextTick(() => {
+    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
+    updateCardsViewportMetrics()
+  })
 })
 
 watch(typeChip, (value) => {
   syncTypeFocus(value)
-})
-
-watch([historyItems, typeChip], async () => {
-  if (!isSearchActive.value) {
-    await nextTick()
-    historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
-    updateCardsViewportMetrics()
-  }
 })
 
 watch(
@@ -1323,7 +1394,7 @@ function onWindowKeyDown(e: KeyboardEvent): void {
 
 function onWindowFocus(): void {
   if (isSettingsRoute.value) return
-  void refreshVisibleState()
+  void Promise.all([refreshState(), refreshPasteStack()])
 }
 
 function onWindowResize(): void {
@@ -1366,8 +1437,11 @@ onMounted(async () => {
     applyPanelSnapshot(snapshot, lastAppliedPanelRequestId !== requestId)
     lastAppliedPanelRequestId = requestId
   })
-  unsubItems = window.api.onClipItemsChanged(async () => {
-    await refreshAfterMutation()
+  unsubHistoryMutation = window.api.onHistoryMutation((mutation) => {
+    applyHistoryMutation(mutation)
+  })
+  unsubPanelPerformance = window.api.onPanelPerformanceMark((mark) => {
+    recordPanelPerformanceMark(mark)
   })
   unsubState = window.api.onClipStateChanged((state) => {
     paused.value = state.paused
@@ -1391,7 +1465,8 @@ onBeforeUnmount(() => {
   unsubSettings?.()
   unsubPanelPreparing?.()
   unsubPreparePanel?.()
-  unsubItems?.()
+  unsubHistoryMutation?.()
+  unsubPanelPerformance?.()
   unsubState?.()
   unsubStack?.()
   window.removeEventListener('hashchange', onHashChange)
@@ -1627,8 +1702,11 @@ onBeforeUnmount(() => {
                     </div>
                   </template>
                   <template v-else-if="item.type === 'color'">
-                    <div class="color-box" :style="{ background: item.content }">
-                      <span class="color-text">{{ item.content }}</span>
+                    <div
+                      class="color-box"
+                      :style="{ background: item.content_preview || '#000000' }"
+                    >
+                      <span class="color-text">{{ item.content_preview }}</span>
                     </div>
                   </template>
                   <template v-else-if="isInlineEditing(item)">

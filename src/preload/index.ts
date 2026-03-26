@@ -4,8 +4,11 @@ import type {
   AppSettings,
   AppIconTarget,
   ClipItem,
+  ClipItemSummary,
   CreateClipItemInput,
+  HistoryMutationEvent,
   PanelSnapshot,
+  PanelPerformanceMark,
   SettingsSnapshot,
   PasteStackState,
   SearchFilters,
@@ -15,8 +18,10 @@ import type {
 
 const api = {
   // 数据库操作
-  getClipItems: (limit?: number, offset?: number): Promise<ClipItem[]> =>
+  getClipItems: (limit?: number, offset?: number): Promise<ClipItemSummary[]> =>
     ipcRenderer.invoke('db:getClipItems', limit, offset),
+  getClipItemSummary: (id: string): Promise<ClipItemSummary | null> =>
+    ipcRenderer.invoke('db:getClipItemSummary', id),
   getClipItem: (id: string): Promise<ClipItem | null> => ipcRenderer.invoke('db:getClipItem', id),
   createClipItem: (input: CreateClipItemInput): Promise<string> =>
     ipcRenderer.invoke('db:createClipItem', input),
@@ -40,7 +45,7 @@ const api = {
   deleteClipItem: (id: string): Promise<void> => ipcRenderer.invoke('db:deleteClipItem', id),
   deleteClipItems: (ids: string[]): Promise<void> => ipcRenderer.invoke('db:deleteClipItems', ids),
   clearHistory: (): Promise<void> => ipcRenderer.invoke('db:clearHistory'),
-  searchClipItems: (filters: SearchFilters): Promise<ClipItem[]> =>
+  searchClipItems: (filters: SearchFilters): Promise<ClipItemSummary[]> =>
     ipcRenderer.invoke('db:searchClipItems', filters),
   getSourceApps: (): Promise<SourceAppSummary[]> => ipcRenderer.invoke('db:getSourceApps'),
 
@@ -67,6 +72,11 @@ const api = {
     ipcRenderer.on('clip:stateChanged', listener)
     return () => ipcRenderer.removeListener('clip:stateChanged', listener)
   },
+  onHistoryMutation: (callback: (mutation: HistoryMutationEvent) => void): (() => void) => {
+    const listener = (_event, mutation: HistoryMutationEvent): void => callback(mutation)
+    ipcRenderer.on('history:mutation', listener)
+    return () => ipcRenderer.removeListener('history:mutation', listener)
+  },
   onPanelPreparing: (callback: (requestId: number) => void | Promise<void>): (() => void) => {
     const listener = (_event, requestId: number): void => {
       void callback(requestId)
@@ -82,6 +92,11 @@ const api = {
     }
     ipcRenderer.on('window:preparePanelShow', listener)
     return () => ipcRenderer.removeListener('window:preparePanelShow', listener)
+  },
+  onPanelPerformanceMark: (callback: (mark: PanelPerformanceMark) => void): (() => void) => {
+    const listener = (_event, mark: PanelPerformanceMark): void => callback(mark)
+    ipcRenderer.on('window:panelPerformanceMark', listener)
+    return () => ipcRenderer.removeListener('window:panelPerformanceMark', listener)
   },
   getPasteStackState: (): Promise<PasteStackState> => ipcRenderer.invoke('clip:getStackState'),
   setPasteStackEnabled: (enabled: boolean): Promise<void> =>

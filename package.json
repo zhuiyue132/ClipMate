@@ -13,6 +13,8 @@
     "build:unpack": "npm run build:ocr-helper && npm run build && electron-builder --config electron-builder.config.mjs --dir",
     "build:mac": "npm run build:ocr-helper && npm run build && electron-builder --config electron-builder.config.mjs --mac",
     "preview": "electron-vite preview",
+    "perf:benchmark": "electron build/benchmark-history-performance.mjs",
+    "smoke:panel": "CLIPMATE_SMOKE_TEST=1 electron-vite preview",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
