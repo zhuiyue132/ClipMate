@@ -118,6 +118,7 @@
 ### 5.6 改托盘、图标或菜单栏交互
 
 - `src/main/tray.ts`
+- 应用图标与托盘图标现在以 `build/iconset-source/clipmate.iconset` 为源，通过 `build/prepare-icons.mjs` 生成 `build/icon.icns`、`build/icon.png` 和 `build/tray/*`
 - 打包资源来自 `build/tray/*`，同时内置 fallback icon
 - Renderer 侧统一使用 `@tabler/icons-vue`，图标封装在 `src/renderer/src/components/UiIcon.vue`
 - 历史卡片来源应用图标仍通过 `system:getAppIcons` 动态获取，不走第三方图标库
@@ -154,6 +155,7 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run build
+npm run build:icons
 npm run build:unpack
 npm run build:mac
 CLIPMATE_SMOKE_TEST=1 electron-vite preview
