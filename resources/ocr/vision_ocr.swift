@@ -8,6 +8,41 @@ func loadCGImage(from path: String) -> CGImage? {
   return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
 }
 
+func configure(_ request: VNRecognizeTextRequest) {
+  request.recognitionLevel = .accurate
+  request.usesLanguageCorrection = true
+  request.minimumTextHeight = 0.008
+
+  if #available(macOS 13.0, *) {
+    request.automaticallyDetectsLanguage = true
+  }
+
+  if #available(macOS 12.0, *) {
+    do {
+      let supported = try request.supportedRecognitionLanguages()
+      let preferred = ["zh-Hans", "zh-Hant", "en-US"].filter { supported.contains($0) }
+      if !preferred.isEmpty {
+        request.recognitionLanguages = preferred
+      }
+    } catch {
+      // Ignore language hint lookup failures and keep Vision defaults.
+    }
+  }
+}
+
+func sortedLines(from observations: [VNRecognizedTextObservation]) -> [String] {
+  let sorted = observations.sorted { left, right in
+    let verticalDelta = abs(left.boundingBox.midY - right.boundingBox.midY)
+    if verticalDelta > 0.025 {
+      return left.boundingBox.midY > right.boundingBox.midY
+    }
+
+    return left.boundingBox.minX < right.boundingBox.minX
+  }
+
+  return sorted.compactMap { $0.topCandidates(1).first?.string }
+}
+
 guard CommandLine.arguments.count >= 2 else {
   fputs("Usage: vision_ocr.swift <imagePath>\\n", stderr)
   exit(2)
@@ -21,16 +56,14 @@ guard let cgImage = loadCGImage(from: imagePath) else {
 }
 
 let request = VNRecognizeTextRequest()
-request.recognitionLevel = .accurate
-request.usesLanguageCorrection = true
-request.minimumTextHeight = 0.02
+configure(request)
 
 let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
 
 do {
   try handler.perform([request])
   let observations = request.results ?? []
-  let lines = observations.compactMap { $0.topCandidates(1).first?.string }
+  let lines = sortedLines(from: observations)
   print(lines.joined(separator: "\n"))
 } catch {
   fputs("OCR error: \(error)\\n", stderr)

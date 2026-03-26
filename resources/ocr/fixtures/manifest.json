@@ -1,0 +1,19 @@
+{
+  "fixtures": [
+    {
+      "id": "retina-mixed-language-screenshot",
+      "description": "Representative retina screenshot with mixed Chinese and English text.",
+      "representations": [
+        {
+          "path": "retina-mixed-language-screenshot@1x.png",
+          "scaleFactor": 1
+        },
+        {
+          "path": "retina-mixed-language-screenshot@2x.png",
+          "scaleFactor": 2
+        }
+      ],
+      "requiredFragments": ["ClipMate OCR 回归检查", "Ready for Review", "Queue latency <= 12 ms"]
+    }
+  ]
+}

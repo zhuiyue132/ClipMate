@@ -2,6 +2,7 @@ import { clipboard } from 'electron'
 import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import type { ClipItem } from '../../shared/types'
+import { serializeClipboardImageForStorage } from '../ocr/imageStorage'
 
 const CONCEALED_CLIPBOARD_FORMATS = new Set([
   'org.nspasteboard.ConcealedType',
@@ -225,13 +226,12 @@ export function readClipboardContent(): ClipboardContent | null {
 
   const image = clipboard.readImage()
   if (!image.isEmpty()) {
-    const png = image.toPNG()
-    const thumbnail = image.resize({ width: 320 }).toPNG()
+    const storedImage = serializeClipboardImageForStorage(image)
     return {
       type: 'image',
-      content: png.toString('base64'),
+      content: storedImage.contentBase64,
       plain_text: null,
-      thumbnail: thumbnail.length > 0 ? thumbnail : null
+      thumbnail: storedImage.thumbnail
     }
   }
 

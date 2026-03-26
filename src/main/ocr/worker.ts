@@ -1,9 +1,6 @@
-import { app } from 'electron'
-import { execFile, execFileSync } from 'node:child_process'
-import { accessSync, constants, existsSync, mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { promisify } from 'node:util'
 import { getDatabase } from '../database'
 import {
   getClipItemSummaryById,
@@ -11,85 +8,15 @@ import {
   updateClipItemOcrText
 } from '../database/clipItems'
 import { broadcastHistoryUpsert } from '../events'
-
-const execFileAsync = promisify(execFile)
+import { logOcrDebug } from './debug'
+import { getOcrRuntimeInfo, runVisionOcr } from './runtime'
 
 let timer: NodeJS.Timeout | null = null
 let running = false
 let enabled = false
 
-function fileExists(path: string): boolean {
-  try {
-    return existsSync(path)
-  } catch {
-    return false
-  }
-}
-
-function isExecutable(path: string): boolean {
-  try {
-    accessSync(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function findOcrHelperPath(): string | null {
-  const candidates = [
-    join(process.resourcesPath, 'ocr/vision_ocr'),
-    join(process.cwd(), 'build/generated-resources/ocr/vision_ocr'),
-    join(app.getAppPath(), 'build/generated-resources/ocr/vision_ocr'),
-    join(__dirname, '../../../build/generated-resources/ocr/vision_ocr')
-  ]
-
-  return candidates.find(isExecutable) ?? null
-}
-
-function findOcrScriptPath(): string | null {
-  const candidates = [
-    join(process.cwd(), 'resources/ocr/vision_ocr.swift'),
-    join(app.getAppPath(), 'resources/ocr/vision_ocr.swift'),
-    join(__dirname, '../../../resources/ocr/vision_ocr.swift')
-  ]
-
-  return candidates.find(fileExists) ?? null
-}
-
-function isSwiftAvailable(): boolean {
-  if (process.platform !== 'darwin') return false
-  try {
-    execFileSync('swift', ['--version'], { stdio: 'ignore' })
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function runVisionOcr(imagePath: string): Promise<string> {
-  const helperPath = findOcrHelperPath()
-  if (helperPath) {
-    const { stdout } = await execFileAsync(helperPath, [imagePath], {
-      timeout: 30_000,
-      maxBuffer: 5 * 1024 * 1024
-    })
-
-    return (stdout ?? '').trim()
-  }
-
-  const scriptPath = findOcrScriptPath()
-  if (!scriptPath) throw new Error('Vision OCR script not found')
-
-  const { stdout } = await execFileAsync('swift', [scriptPath, imagePath], {
-    timeout: 30_000,
-    maxBuffer: 5 * 1024 * 1024
-  })
-
-  return (stdout ?? '').trim()
-}
-
-async function tickOnce(): Promise<void> {
-  if (!enabled || running) return
+async function processPendingImageOcrOnce(): Promise<boolean> {
+  if (!enabled || running) return false
   running = true
 
   try {
@@ -106,7 +33,7 @@ async function tickOnce(): Promise<void> {
       )
       .get() as { id: string; content: string } | undefined
 
-    if (!row) return
+    if (!row) return false
 
     const dir = join(tmpdir(), 'clipmate-ocr')
     mkdirSync(dir, { recursive: true })
@@ -115,9 +42,21 @@ async function tickOnce(): Promise<void> {
 
     let text = ''
     try {
-      text = await runVisionOcr(filePath)
-    } catch {
-      text = ''
+      const result = await runVisionOcr(filePath)
+      text = result.text
+      logOcrDebug('OCR item processed', {
+        itemId: row.id,
+        engine: result.engine,
+        usedFallback: result.usedFallback,
+        executablePath: result.executablePath,
+        textLength: result.text.length
+      })
+    } catch (error) {
+      console.error('[ocr] failed to process image item', {
+        itemId: row.id,
+        error: error instanceof Error ? error.message : String(error)
+      })
+      return false
     } finally {
       try {
         unlinkSync(filePath)
@@ -131,6 +70,8 @@ async function tickOnce(): Promise<void> {
     if (summary) {
       broadcastHistoryUpsert([summary], getSourceAppSummaries(), 'ocr')
     }
+
+    return true
   } finally {
     running = false
   }
@@ -138,14 +79,16 @@ async function tickOnce(): Promise<void> {
 
 export function startOcrWorker(): void {
   if (timer) return
-  enabled = Boolean(findOcrHelperPath()) || isSwiftAvailable()
+  const runtime = getOcrRuntimeInfo()
+  enabled = runtime.enabled
+  logOcrDebug('starting OCR worker', runtime)
   if (!enabled) return
 
   timer = setInterval(() => {
-    void tickOnce()
+    void processPendingImageOcrOnce()
   }, 12_000)
 
-  void tickOnce()
+  void processPendingImageOcrOnce()
 }
 
 export function stopOcrWorker(): void {

@@ -63,7 +63,14 @@ npm run lint
 npm run build
 npm run build:unpack
 npm run build:mac
+npm run verify:ocr
 ```
+
+OCR 相关补充：
+
+- `npm run verify:ocr` 会在 macOS 上跑一组基于 Vision helper 的 OCR fixture 回归校验，用来捕获图片 OCR 精度退化。
+- `npm run ocr:reprocess -- --db /absolute/path/to/clipmate.db --id <clip-item-id>` 可将指定图片条目的 `ocr_text` 置空，供修复后重新跑 OCR。
+- `npm run ocr:reprocess -- --db /absolute/path/to/clipmate.db --all-images` 可在 QA 环境批量重置所有图片条目的 OCR 结果。
 
 ### 打包发布
 
@@ -178,6 +185,7 @@ docs               # PRD、路线图、发布说明
 
 - 仅支持 macOS，未适配 Windows / Linux
 - OCR 在开发态依赖本机 `swift`；正式分发依赖打包时生成的 helper
+- OCR fixture 校验与真实 OCR 行为都只能在 macOS 上验证；仓库内命令不能替代真实剪贴板复制链路的最终人工回归
 - 自动更新只在打包版本中可用，开发模式下不可用
 - “屏幕共享隐藏”当前主要依赖窗口内容保护，不是完整的共享状态感知方案
 - 签名、公证、更新源联调、官网 / App Store 发布仍依赖外部账号和真实发布环境

@@ -29,6 +29,7 @@ import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 import { buildPanelSnapshot } from './panelSnapshot'
 import { broadcastPanelPerformanceMark } from './events'
 import { runPanelSmokeTest } from './smoke/panelFlow'
+import { runOcrFixtureVerificationCli } from './ocr/verification'
 import {
   configurePasteStackPasteShortcut,
   getShortcutRegistrationState,
@@ -59,6 +60,7 @@ import {
 let tray: Tray | null = null
 let pendingShowRequestId = 0
 const SMOKE_TEST_ENABLED = process.env.CLIPMATE_SMOKE_TEST === '1'
+const OCR_FIXTURE_VERIFY_ENABLED = process.env.CLIPMATE_OCR_FIXTURE_VERIFY === '1'
 
 function emitPanelPerformanceMark(
   requestId: number,
@@ -206,6 +208,13 @@ function toggleMainWindowFromCurrentApp(): void {
 }
 
 app.whenReady().then(() => {
+  if (OCR_FIXTURE_VERIFY_ENABLED) {
+    void runOcrFixtureVerificationCli().then((exitCode) => {
+      app.exit(exitCode)
+    })
+    return
+  }
+
   // 设置 app user model id（macOS）
   electronApp.setAppUserModelId('com.clipmate.app')
 

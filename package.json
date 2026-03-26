@@ -12,6 +12,8 @@
     "postinstall": "electron-builder install-app-deps",
     "build:unpack": "npm run build:ocr-helper && npm run build && electron-builder --config electron-builder.config.mjs --dir",
     "build:mac": "npm run build:ocr-helper && npm run build && electron-builder --config electron-builder.config.mjs --mac",
+    "verify:ocr": "npm run build:ocr-helper && CLIPMATE_OCR_FIXTURE_VERIFY=1 electron-vite preview",
+    "ocr:reprocess": "node build/reprocess-image-ocr.mjs",
     "preview": "electron-vite preview",
     "perf:benchmark": "electron build/benchmark-history-performance.mjs",
     "smoke:panel": "CLIPMATE_SMOKE_TEST=1 electron-vite preview",
