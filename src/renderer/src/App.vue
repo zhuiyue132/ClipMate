@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
 import StackDockView from './StackDockView.vue'
+import UiIcon from './components/UiIcon.vue'
 import type {
   AppSettings,
   AppIconTarget,
@@ -18,83 +19,9 @@ import type {
 } from '../../shared/types'
 
 type ClipMenuAction = 'delete'
-type PanelIconName =
-  | 'more'
-  | 'settings'
-  | 'info'
-  | 'pause'
-  | 'play'
-  | 'stack'
-  | 'trash'
-  | 'preview'
-  | 'edit'
 type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 type DatePreset = 'all' | 'today' | 'week' | 'custom'
 type HistoryCardItem = ClipItemSummary
-
-const PanelIcon = (props: { name: PanelIconName; size?: number; strokeWidth?: number }) => {
-  const svgProps = {
-    viewBox: '0 0 24 24',
-    fill: 'none',
-    stroke: 'currentColor',
-    'stroke-width': props.strokeWidth ?? 1.8,
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round',
-    width: props.size ?? 16,
-    height: props.size ?? 16,
-    'aria-hidden': 'true'
-  }
-
-  switch (props.name) {
-    case 'more':
-      return h('svg', svgProps, [
-        h('circle', { cx: '5', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' }),
-        h('circle', { cx: '12', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' }),
-        h('circle', { cx: '19', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' })
-      ])
-    case 'settings':
-      return h('svg', svgProps, [
-        h('path', {
-          d: 'M10.4 3.2h3.2l.6 2a7.8 7.8 0 0 1 1.6.9l2-.6 1.6 2.8-1.4 1.5a8.1 8.1 0 0 1 0 1.8l1.4 1.5-1.6 2.8-2-.6a7.8 7.8 0 0 1-1.6.9l-.6 2h-3.2l-.6-2a7.8 7.8 0 0 1-1.6-.9l-2 .6-1.6-2.8 1.4-1.5a8.1 8.1 0 0 1 0-1.8L3.8 8.3l1.6-2.8 2 .6a7.8 7.8 0 0 1 1.6-.9l.6-2Z'
-        }),
-        h('circle', { cx: '12', cy: '12', r: '3.1' })
-      ])
-    case 'info':
-      return h('svg', svgProps, [
-        h('circle', { cx: '12', cy: '12', r: '9' }),
-        h('path', { d: 'M12 10v6' }),
-        h('path', { d: 'M12 7h.01' })
-      ])
-    case 'pause':
-      return h('svg', svgProps, [h('path', { d: 'M9 5v14' }), h('path', { d: 'M15 5v14' })])
-    case 'play':
-      return h('svg', svgProps, [h('path', { d: 'm9 6 8 6-8 6V6Z' })])
-    case 'stack':
-      return h('svg', svgProps, [
-        h('path', { d: 'm4 7.5 8-3.5 8 3.5-8 3.5-8-3.5Z' }),
-        h('path', { d: 'm4 12.5 8 3.5 8-3.5' }),
-        h('path', { d: 'm4 17.5 8 3.5 8-3.5' })
-      ])
-    case 'trash':
-      return h('svg', svgProps, [
-        h('path', { d: 'M4 7h16' }),
-        h('path', { d: 'M10 11v6' }),
-        h('path', { d: 'M14 11v6' }),
-        h('path', { d: 'M6 7l1 12h10l1-12' }),
-        h('path', { d: 'M9 7V4h6v3' })
-      ])
-    case 'preview':
-      return h('svg', svgProps, [
-        h('path', { d: 'M2.5 12s3.7-6 9.5-6 9.5 6 9.5 6-3.7 6-9.5 6-9.5-6-9.5-6Z' }),
-        h('circle', { cx: '12', cy: '12', r: '2.8' })
-      ])
-    case 'edit':
-      return h('svg', svgProps, [
-        h('path', { d: 'm4 20 4.5-1 9-9a2.1 2.1 0 0 0-3-3l-9 9L4 20Z' }),
-        h('path', { d: 'm13.5 6.5 4 4' })
-      ])
-  }
-}
 const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'text', label: '文本' },
@@ -1520,17 +1447,7 @@ onBeforeUnmount(() => {
               @focus="onSearchToggleFocus"
               @keydown="onSearchToggleKeyDown"
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
-              >
-                <path d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z" />
-              </svg>
+              <UiIcon name="search" :size="15" :stroke-width="2" />
             </button>
             <input
               v-if="searchExpanded"
@@ -1607,33 +1524,33 @@ onBeforeUnmount(() => {
 
         <div class="action-anchor">
           <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">
-            <PanelIcon name="more" />
+            <UiIcon name="more" />
           </button>
 
           <div v-if="moreOpen" class="popover" @click.stop>
             <button class="menu-item" @click="openSettings()">
-              <span class="menu-item-icon"><PanelIcon name="settings" /></span>
+              <span class="menu-item-icon"><UiIcon name="settings" /></span>
               <span class="menu-item-label">打开设置</span>
             </button>
             <button class="menu-item" @click="openAbout()">
-              <span class="menu-item-icon"><PanelIcon name="info" /></span>
+              <span class="menu-item-icon"><UiIcon name="info" /></span>
               <span class="menu-item-label">关于 ClipMate</span>
             </button>
             <div class="menu-sep"></div>
             <button class="menu-item" @click="togglePaused()">
               <span class="menu-item-icon">
-                <PanelIcon :name="paused ? 'play' : 'pause'" />
+                <UiIcon :name="paused ? 'play' : 'pause'" />
               </span>
               <span class="menu-item-label">{{ paused ? '恢复收集' : '暂停收集' }}</span>
             </button>
             <button class="menu-item" @click="togglePasteStackUi()">
-              <span class="menu-item-icon"><PanelIcon name="stack" /></span>
+              <span class="menu-item-icon"><UiIcon name="stack" /></span>
               <span class="menu-item-label">
                 {{ pasteStackState.enabled ? '关闭 Paste Stack' : '启用 Paste Stack' }}
               </span>
             </button>
             <button class="menu-item" @click="clearHistory()">
-              <span class="menu-item-icon"><PanelIcon name="trash" /></span>
+              <span class="menu-item-icon"><UiIcon name="trash" /></span>
               <span class="menu-item-label">清空历史</span>
             </button>
           </div>
@@ -1692,7 +1609,7 @@ onBeforeUnmount(() => {
                   </div>
                   <div v-if="canOpenPreviewEdit(item)" class="card-tools">
                     <button class="card-tool-btn" @click.stop="openEditPreviewById(item.id)">
-                      <PanelIcon name="edit" :size="13" :stroke-width="2" />
+                      <UiIcon name="edit" :size="13" :stroke-width="2" />
                       <span>编辑</span>
                     </button>
                   </div>
@@ -1756,7 +1673,7 @@ onBeforeUnmount(() => {
             @click.stop
           >
             <button class="menu-item" @click="previewFromContext()">
-              <span class="menu-item-icon"><PanelIcon name="preview" /></span>
+              <span class="menu-item-icon"><UiIcon name="preview" /></span>
               <span class="menu-item-label">预览</span>
             </button>
             <button
@@ -1764,11 +1681,11 @@ onBeforeUnmount(() => {
               class="menu-item"
               @click="editFromContext()"
             >
-              <span class="menu-item-icon"><PanelIcon name="edit" /></span>
+              <span class="menu-item-icon"><UiIcon name="edit" /></span>
               <span class="menu-item-label">编辑</span>
             </button>
             <button class="menu-item danger" @click="runClipAction('delete')">
-              <span class="menu-item-icon"><PanelIcon name="trash" /></span>
+              <span class="menu-item-icon"><UiIcon name="trash" /></span>
               <span class="menu-item-label">删除</span>
             </button>
           </div>
@@ -1786,7 +1703,9 @@ onBeforeUnmount(() => {
             <div class="preview-sub">无需先复制，可直接保存到历史记录</div>
           </div>
           <div class="preview-actions">
-            <button class="icon-btn" title="关闭" @click="closeCreateDialog()">✕</button>
+            <button class="icon-btn" title="关闭" @click="closeCreateDialog()">
+              <UiIcon name="close" :size="18" :stroke-width="2" />
+            </button>
           </div>
         </div>
 
@@ -2844,11 +2763,16 @@ body {
 .icon-btn {
   width: 34px;
   height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
   border-radius: 12px;
   border: 1px solid var(--border-color);
   background: var(--bg-card);
   cursor: pointer;
   color: var(--text-primary);
+  padding: 0;
 }
 
 .icon-btn:hover {

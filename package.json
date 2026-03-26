@@ -27,6 +27,7 @@
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
+    "@tabler/icons-vue": "^3.40.0",
     "better-sqlite3": "^11.7.0",
     "electron-updater": "^6.8.3",
     "uuid": "^11.1.0",

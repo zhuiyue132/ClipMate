@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import UiIcon from './components/UiIcon.vue'
 import type {
   ClipItem,
   HistoryMutationEvent,
@@ -556,8 +557,12 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="preview-actions">
-          <button class="icon-btn" title="复制" @click="copyPreview(true)">📄</button>
-          <button class="icon-btn" title="粘贴" @click="pastePreview(false)">📋</button>
+          <button class="icon-btn" title="复制" @click="copyPreview(true)">
+            <UiIcon name="copy" :size="18" :stroke-width="1.9" />
+          </button>
+          <button class="icon-btn" title="粘贴" @click="pastePreview(false)">
+            <UiIcon name="paste" :size="18" :stroke-width="1.9" />
+          </button>
           <button
             v-if="previewItem && (previewItem.type === 'text' || previewItem.type === 'richtext')"
             class="icon-btn"
@@ -565,9 +570,11 @@ onBeforeUnmount(() => {
             title="编辑"
             @click="toggleEdit()"
           >
-            ✏️
+            <UiIcon name="edit" :size="18" :stroke-width="1.9" />
           </button>
-          <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">💾</button>
+          <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">
+            <UiIcon name="save" :size="18" :stroke-width="1.9" />
+          </button>
           <button
             v-if="previewItem?.type === 'link'"
             class="icon-btn"
@@ -575,10 +582,10 @@ onBeforeUnmount(() => {
             title="编辑链接"
             @click="toggleLinkEdit()"
           >
-            🔗
+            <UiIcon name="link" :size="18" :stroke-width="1.9" />
           </button>
           <button v-if="linkEditMode" class="icon-btn" title="保存链接" @click="saveLinkEdit()">
-            💾
+            <UiIcon name="save" :size="18" :stroke-width="1.9" />
           </button>
           <button
             class="icon-btn"
@@ -586,10 +593,14 @@ onBeforeUnmount(() => {
             title="重命名"
             @click="toggleRename()"
           >
-            🏷
+            <UiIcon name="tag" :size="18" :stroke-width="1.9" />
           </button>
-          <button class="icon-btn danger" title="删除" @click="deletePreviewItem()">🗑</button>
-          <button class="icon-btn" title="关闭" @click="closePreviewWindow()">✕</button>
+          <button class="icon-btn danger" title="删除" @click="deletePreviewItem()">
+            <UiIcon name="trash" :size="18" :stroke-width="1.9" />
+          </button>
+          <button class="icon-btn" title="关闭" @click="closePreviewWindow()">
+            <UiIcon name="close" :size="18" :stroke-width="1.9" />
+          </button>
         </div>
       </div>
 

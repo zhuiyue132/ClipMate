@@ -126,6 +126,7 @@
     "macOS-only implementation",
     "paste and app switching rely on osascript/open commands",
     "renderer main panel logic is concentrated in App.vue",
+    "renderer UI icons use @tabler/icons-vue via src/renderer/src/components/UiIcon.vue, while source app icons are still fetched dynamically via system:getAppIcons",
     "auto update only works in packaged app",
     "OCR requires packaged helper or local swift toolchain in development"
   ],

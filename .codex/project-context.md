@@ -119,6 +119,8 @@
 
 - `src/main/tray.ts`
 - 打包资源来自 `build/tray/*`，同时内置 fallback icon
+- Renderer 侧统一使用 `@tabler/icons-vue`，图标封装在 `src/renderer/src/components/UiIcon.vue`
+- 历史卡片来源应用图标仍通过 `system:getAppIcons` 动态获取，不走第三方图标库
 
 ### 5.7 改 OCR、链接元数据、同步或自动更新
 
