@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
 import StackDockView from './StackDockView.vue'
@@ -18,9 +18,83 @@ import type {
 } from '../../shared/types'
 
 type ClipMenuAction = 'delete'
+type PanelIconName =
+  | 'more'
+  | 'settings'
+  | 'info'
+  | 'pause'
+  | 'play'
+  | 'stack'
+  | 'trash'
+  | 'preview'
+  | 'edit'
 type TypeChip = 'all' | 'text' | 'image' | 'link' | 'file' | 'color'
 type DatePreset = 'all' | 'today' | 'week' | 'custom'
 type HistoryCardItem = ClipItemSummary
+
+const PanelIcon = (props: { name: PanelIconName; size?: number; strokeWidth?: number }) => {
+  const svgProps = {
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    'stroke-width': props.strokeWidth ?? 1.8,
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round',
+    width: props.size ?? 16,
+    height: props.size ?? 16,
+    'aria-hidden': 'true'
+  }
+
+  switch (props.name) {
+    case 'more':
+      return h('svg', svgProps, [
+        h('circle', { cx: '5', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' }),
+        h('circle', { cx: '12', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' }),
+        h('circle', { cx: '19', cy: '12', r: '1.6', fill: 'currentColor', stroke: 'none' })
+      ])
+    case 'settings':
+      return h('svg', svgProps, [
+        h('path', {
+          d: 'M10.4 3.2h3.2l.6 2a7.8 7.8 0 0 1 1.6.9l2-.6 1.6 2.8-1.4 1.5a8.1 8.1 0 0 1 0 1.8l1.4 1.5-1.6 2.8-2-.6a7.8 7.8 0 0 1-1.6.9l-.6 2h-3.2l-.6-2a7.8 7.8 0 0 1-1.6-.9l-2 .6-1.6-2.8 1.4-1.5a8.1 8.1 0 0 1 0-1.8L3.8 8.3l1.6-2.8 2 .6a7.8 7.8 0 0 1 1.6-.9l.6-2Z'
+        }),
+        h('circle', { cx: '12', cy: '12', r: '3.1' })
+      ])
+    case 'info':
+      return h('svg', svgProps, [
+        h('circle', { cx: '12', cy: '12', r: '9' }),
+        h('path', { d: 'M12 10v6' }),
+        h('path', { d: 'M12 7h.01' })
+      ])
+    case 'pause':
+      return h('svg', svgProps, [h('path', { d: 'M9 5v14' }), h('path', { d: 'M15 5v14' })])
+    case 'play':
+      return h('svg', svgProps, [h('path', { d: 'm9 6 8 6-8 6V6Z' })])
+    case 'stack':
+      return h('svg', svgProps, [
+        h('path', { d: 'm4 7.5 8-3.5 8 3.5-8 3.5-8-3.5Z' }),
+        h('path', { d: 'm4 12.5 8 3.5 8-3.5' }),
+        h('path', { d: 'm4 17.5 8 3.5 8-3.5' })
+      ])
+    case 'trash':
+      return h('svg', svgProps, [
+        h('path', { d: 'M4 7h16' }),
+        h('path', { d: 'M10 11v6' }),
+        h('path', { d: 'M14 11v6' }),
+        h('path', { d: 'M6 7l1 12h10l1-12' }),
+        h('path', { d: 'M9 7V4h6v3' })
+      ])
+    case 'preview':
+      return h('svg', svgProps, [
+        h('path', { d: 'M2.5 12s3.7-6 9.5-6 9.5 6 9.5 6-3.7 6-9.5 6-9.5-6-9.5-6Z' }),
+        h('circle', { cx: '12', cy: '12', r: '2.8' })
+      ])
+    case 'edit':
+      return h('svg', svgProps, [
+        h('path', { d: 'm4 20 4.5-1 9-9a2.1 2.1 0 0 0-3-3l-9 9L4 20Z' }),
+        h('path', { d: 'm13.5 6.5 4 4' })
+      ])
+  }
+}
 const TYPE_OPTIONS: Array<{ value: TypeChip; label: string }> = [
   { value: 'all', label: '全部' },
   { value: 'text', label: '文本' },
@@ -61,12 +135,6 @@ const selectedIds = ref<string[]>([])
 const anchorId = ref<string | null>(null)
 const hoveredId = ref<string | null>(null)
 const selectedSet = computed(() => new Set(selectedIds.value))
-const orderedSelectedIds = computed(() =>
-  visibleItems.value.filter((item) => selectedSet.value.has(item.id)).map((item) => item.id)
-)
-const inlineEditingId = ref<string | null>(null)
-const inlineEditDraft = ref('')
-const inlineEditSaving = ref(false)
 
 const createOpen = ref(false)
 const createType = ref<'text' | 'link'>('text')
@@ -459,7 +527,7 @@ async function confirmActiveCard(): Promise<void> {
       ? (items.find((entry) => entry.id === selectedIds.value[0]) ?? null)
       : null)
   if (!item) return
-  await onCardClick(item)
+  await pasteHistoryItem(item)
 }
 
 function formatRelativeTime(ts: number): string {
@@ -680,65 +748,8 @@ function imageSrc(item: HistoryCardItem): string | null {
   return item.image_preview
 }
 
-function canInlineEdit(item: HistoryCardItem): boolean {
-  return item.type === 'text' || item.type === 'richtext'
-}
-
-function isInlineEditing(item: HistoryCardItem): boolean {
-  return inlineEditingId.value === item.id
-}
-
-async function beginInlineEdit(item: HistoryCardItem): Promise<void> {
-  if (!canInlineEdit(item)) return
-  closeAllMenus()
-  clearSelection()
-  setActiveCard(item.id)
-  inlineEditingId.value = item.id
-  inlineEditDraft.value = item.plain_text_preview ?? item.content_preview ?? ''
-
-  const fullItem = await window.api.getClipItem(item.id)
-  if (inlineEditingId.value !== item.id || !fullItem) return
-  inlineEditDraft.value = fullItem.plain_text ?? fullItem.content ?? ''
-}
-
-function cancelInlineEdit(): void {
-  inlineEditingId.value = null
-  inlineEditDraft.value = ''
-  inlineEditSaving.value = false
-}
-
-async function saveInlineEdit(): Promise<void> {
-  const itemId = inlineEditingId.value
-  if (!itemId) return
-
-  inlineEditSaving.value = true
-  try {
-    await window.api.updateClipItemText(itemId, inlineEditDraft.value)
-    await refreshSummaryById(itemId)
-    setActiveCard(itemId)
-    cancelInlineEdit()
-    showToast('已在列表中保存文本')
-  } finally {
-    inlineEditSaving.value = false
-  }
-}
-
-function onInlineEditorKeyDown(event: KeyboardEvent): void {
-  event.stopPropagation()
-
-  if (event.key === 'Escape') {
-    event.preventDefault()
-    cancelInlineEdit()
-    return
-  }
-
-  if (
-    (event.metaKey || event.ctrlKey) &&
-    (event.key === 'Enter' || event.key.toLowerCase() === 's')
-  ) {
-    event.preventDefault()
-    void saveInlineEdit()
-  }
+function canOpenPreviewEdit(item: HistoryCardItem): boolean {
+  return item.type === 'text' || item.type === 'richtext' || item.type === 'link'
 }
 
 async function refreshHistoryItems(): Promise<void> {
@@ -867,9 +878,7 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   customFrom.value = ''
   customTo.value = ''
   searchResults.value = null
-  clearSelection()
-  cancelInlineEdit()
-  closeAllMenus()
+  resetTransientPanelState()
   void nextTick(() => {
     historyCardsRef.value?.scrollTo({ left: 0, behavior: 'auto' })
     updateCardsViewportMetrics()
@@ -1013,6 +1022,10 @@ function closeAllMenus(): void {
   ctxItem.value = null
 }
 
+function isComposingEvent(event: KeyboardEvent): boolean {
+  return event.isComposing || event.key === 'Process' || event.keyCode === 229
+}
+
 function showToast(message: string): void {
   toast.value = message
   if (toastTimer) window.clearTimeout(toastTimer)
@@ -1025,6 +1038,18 @@ function showToast(message: string): void {
 function clearSelection(): void {
   selectedIds.value = []
   anchorId.value = null
+}
+
+function resetTransientPanelState(): void {
+  closeAllMenus()
+  clearSelection()
+  activeCardId.value = null
+  closeCreateDialog()
+}
+
+function dismissMainPanel(): void {
+  resetTransientPanelState()
+  window.api.hideWindow()
 }
 
 function toggleSelection(itemId: string): void {
@@ -1058,17 +1083,12 @@ function selectRange(toId: string): void {
   selectedIds.value = items.slice(start, end + 1).map((i) => i.id)
 }
 
-async function onCardClick(item: HistoryCardItem): Promise<void> {
-  setActiveCard(item.id)
+async function pasteHistoryItem(item: HistoryCardItem): Promise<void> {
+  selectOnly(item.id)
   await window.api.pasteClipItem(item.id)
 }
 
 function onItemClick(ev: MouseEvent, item: HistoryCardItem): void {
-  if (isInlineEditing(item)) return
-  if (inlineEditingId.value && inlineEditingId.value !== item.id) {
-    cancelInlineEdit()
-  }
-
   if (ev.shiftKey) {
     selectRange(item.id)
     return
@@ -1077,11 +1097,12 @@ function onItemClick(ev: MouseEvent, item: HistoryCardItem): void {
     toggleSelection(item.id)
     return
   }
-  if (selectedIds.value.length > 0) {
-    selectOnly(item.id)
-    return
-  }
-  void onCardClick(item)
+  selectOnly(item.id)
+}
+
+function onItemDoubleClick(ev: MouseEvent, item: HistoryCardItem): void {
+  if (ev.shiftKey || ev.metaKey || ev.ctrlKey || ev.altKey) return
+  void pasteHistoryItem(item)
 }
 
 function onItemMouseEnter(item: HistoryCardItem): void {
@@ -1102,33 +1123,14 @@ function openClipContextMenu(ev: MouseEvent, item: HistoryCardItem): void {
   moreOpen.value = false
 }
 
-async function openPreviewById(itemId: string): Promise<void> {
+async function openPreviewById(itemId: string, mode: 'view' | 'edit' = 'view'): Promise<void> {
   setActiveCard(itemId)
-  cancelInlineEdit()
   closeAllMenus()
-  window.api.showPreview(itemId)
+  window.api.showPreview(itemId, { mode })
 }
 
-async function bulkCopyAsText(): Promise<void> {
-  const ids = orderedSelectedIds.value
-  if (ids.length === 0) return
-
-  const copied = await window.api.copyClipItemsAsText(ids)
-  if (copied === 0) {
-    showToast('所选条目没有可复制的文本内容')
-    return
-  }
-
-  showToast(`已复制 ${copied} 项文本`)
-}
-
-async function bulkAddToPasteStack(): Promise<void> {
-  const ids = orderedSelectedIds.value
-  if (ids.length === 0) return
-
-  const added = await window.api.enqueuePasteStackItems(ids)
-  await refreshPasteStack()
-  showToast(added > 0 ? `已将 ${added} 项加入 Paste Stack` : '没有可加入的条目')
+async function openEditPreviewById(itemId: string): Promise<void> {
+  await openPreviewById(itemId, 'edit')
 }
 
 function onItemDragStart(event: DragEvent, item: HistoryCardItem): void {
@@ -1143,7 +1145,6 @@ function onItemDragStart(event: DragEvent, item: HistoryCardItem): void {
 
 function openCreateDialog(type: 'text' | 'link' = 'text'): void {
   closeAllMenus()
-  cancelInlineEdit()
   createOpen.value = true
   createType.value = type
   createTitle.value = ''
@@ -1182,6 +1183,13 @@ async function previewFromContext(): Promise<void> {
   await openPreviewById(item.id)
 }
 
+async function editFromContext(): Promise<void> {
+  const item = ctxItem.value
+  if (!item || !canOpenPreviewEdit(item)) return
+  closeAllMenus()
+  await openEditPreviewById(item.id)
+}
+
 async function bulkDelete(): Promise<void> {
   if (selectedIds.value.length === 0) return
   const ok = window.confirm(`确定删除选中的 ${selectedIds.value.length} 项？`)
@@ -1216,8 +1224,9 @@ function openSettings(): void {
   closeAllMenus()
 }
 
-function quitApp(): void {
-  window.api.quitApp()
+function openAbout(): void {
+  window.api.showSettings({ tab: 'about' })
+  closeAllMenus()
 }
 
 let unsubHistoryMutation: (() => void) | null = null
@@ -1240,9 +1249,6 @@ function clearPanelPreparingTimer(): void {
 
 watch(search, () => {
   clearSelection()
-  if (inlineEditingId.value) {
-    cancelInlineEdit()
-  }
   if (!hasRemoteSearchQuery.value) {
     resetRemoteSearchState()
     return
@@ -1256,9 +1262,6 @@ watch(search, () => {
 
 watch([typeChip, sourceAppFilter, datePreset, customFrom, customTo], () => {
   clearSelection()
-  if (inlineEditingId.value) {
-    cancelInlineEdit()
-  }
   if (!hasRemoteSearchQuery.value) {
     resetRemoteSearchState()
   } else {
@@ -1277,9 +1280,6 @@ watch(typeChip, (value) => {
 watch(
   visibleItems,
   (items) => {
-    if (inlineEditingId.value && !items.some((item) => item.id === inlineEditingId.value)) {
-      cancelInlineEdit()
-    }
     if (items.length === 0) {
       activeCardId.value = null
     } else if (!activeCardId.value || !items.some((item) => item.id === activeCardId.value)) {
@@ -1320,8 +1320,18 @@ function getPreviewCandidateId(): string | null {
 }
 
 function onWindowKeyDown(e: KeyboardEvent): void {
+  if (isComposingEvent(e)) {
+    return
+  }
+
   const typing = isTypingTarget(e.target)
   const shortcuts = appSettings.value?.shortcuts
+
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    dismissMainPanel()
+    return
+  }
 
   if (shortcuts?.focusSearch && matchesAccelerator(e, shortcuts.focusSearch)) {
     e.preventDefault()
@@ -1339,14 +1349,6 @@ function onWindowKeyDown(e: KeyboardEvent): void {
   if (shortcuts?.newLinkItem && matchesAccelerator(e, shortcuts.newLinkItem)) {
     e.preventDefault()
     openCreateDialog('link')
-    return
-  }
-
-  if (createOpen.value) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeCreateDialog()
-    }
     return
   }
 
@@ -1376,14 +1378,6 @@ function onWindowKeyDown(e: KeyboardEvent): void {
       e.preventDefault()
       void openPreviewById(id)
     }
-  }
-
-  if (e.key === 'Escape') {
-    if (selectedIds.value.length > 0) {
-      e.preventDefault()
-      clearSelection()
-    }
-    closeAllMenus()
   }
 
   if ((e.key === 'Backspace' || e.key === 'Delete') && selectedIds.value.length > 0) {
@@ -1420,8 +1414,7 @@ onMounted(async () => {
     currentPanelRequestId = requestId
     panelPreparing.value = false
     clearPanelPreparingTimer()
-    clearSelection()
-    closeAllMenus()
+    resetTransientPanelState()
     panelPreparingTimer = window.setTimeout(() => {
       if (currentPanelRequestId !== requestId) return
       if (!hasItems.value && !loading.value) {
@@ -1613,22 +1606,36 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="action-anchor">
-          <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">···</button>
+          <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">
+            <PanelIcon name="more" />
+          </button>
 
           <div v-if="moreOpen" class="popover" @click.stop>
-            <button class="menu-item" @click="openCreateDialog('text')">＋ 新建文本</button>
-            <button class="menu-item" @click="openCreateDialog('link')">↗ 新建链接</button>
+            <button class="menu-item" @click="openSettings()">
+              <span class="menu-item-icon"><PanelIcon name="settings" /></span>
+              <span class="menu-item-label">打开设置</span>
+            </button>
+            <button class="menu-item" @click="openAbout()">
+              <span class="menu-item-icon"><PanelIcon name="info" /></span>
+              <span class="menu-item-label">关于 ClipMate</span>
+            </button>
             <div class="menu-sep"></div>
-            <button class="menu-item" @click="openSettings()">⚙ 打开设置</button>
             <button class="menu-item" @click="togglePaused()">
-              {{ paused ? '▶︎ 恢复收集' : '⏸ 暂停收集' }}
+              <span class="menu-item-icon">
+                <PanelIcon :name="paused ? 'play' : 'pause'" />
+              </span>
+              <span class="menu-item-label">{{ paused ? '恢复收集' : '暂停收集' }}</span>
             </button>
             <button class="menu-item" @click="togglePasteStackUi()">
-              {{ pasteStackState.enabled ? '📦 关闭 Paste Stack' : '📦 启用 Paste Stack' }}
+              <span class="menu-item-icon"><PanelIcon name="stack" /></span>
+              <span class="menu-item-label">
+                {{ pasteStackState.enabled ? '关闭 Paste Stack' : '启用 Paste Stack' }}
+              </span>
             </button>
-            <button class="menu-item" @click="clearHistory()">🗑 清空历史</button>
-            <div class="menu-sep"></div>
-            <button class="menu-item danger" @click="quitApp()">⏻ 退出</button>
+            <button class="menu-item" @click="clearHistory()">
+              <span class="menu-item-icon"><PanelIcon name="trash" /></span>
+              <span class="menu-item-label">清空历史</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1636,7 +1643,7 @@ onBeforeUnmount(() => {
 
     <main class="app-content">
       <div class="layout">
-        <section class="main-panel" :class="{ 'with-selection-bar': selectedIds.length > 0 }">
+        <section class="main-panel">
           <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
 
           <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
@@ -1671,6 +1678,7 @@ onBeforeUnmount(() => {
                 @mouseenter="onItemMouseEnter(item)"
                 @mouseleave="onItemMouseLeave(item)"
                 @click="onItemClick($event, item)"
+                @dblclick="onItemDoubleClick($event, item)"
                 @dragstart="onItemDragStart($event, item)"
                 @contextmenu="openClipContextMenu($event, item)"
               >
@@ -1682,15 +1690,10 @@ onBeforeUnmount(() => {
                       <span v-html="highlight(clipItemTitle(item))"></span>
                     </div>
                   </div>
-                  <div v-if="canInlineEdit(item)" class="card-tools">
-                    <button
-                      class="card-tool-btn"
-                      :class="{ active: isInlineEditing(item) }"
-                      @click.stop="
-                        isInlineEditing(item) ? cancelInlineEdit() : beginInlineEdit(item)
-                      "
-                    >
-                      {{ isInlineEditing(item) ? '取消' : '编辑' }}
+                  <div v-if="canOpenPreviewEdit(item)" class="card-tools">
+                    <button class="card-tool-btn" @click.stop="openEditPreviewById(item.id)">
+                      <PanelIcon name="edit" :size="13" :stroke-width="2" />
+                      <span>编辑</span>
                     </button>
                   </div>
                 </div>
@@ -1707,33 +1710,6 @@ onBeforeUnmount(() => {
                       :style="{ background: item.content_preview || '#000000' }"
                     >
                       <span class="color-text">{{ item.content_preview }}</span>
-                    </div>
-                  </template>
-                  <template v-else-if="isInlineEditing(item)">
-                    <div class="inline-editor" @click.stop>
-                      <textarea
-                        v-model="inlineEditDraft"
-                        class="inline-edit-area"
-                        autofocus
-                        @click.stop
-                        @keydown="onInlineEditorKeyDown"
-                      ></textarea>
-                      <div class="inline-edit-actions">
-                        <button
-                          class="sel-btn"
-                          :disabled="inlineEditSaving"
-                          @click.stop="cancelInlineEdit()"
-                        >
-                          取消
-                        </button>
-                        <button
-                          class="primary-btn compact"
-                          :disabled="inlineEditSaving"
-                          @click.stop="saveInlineEdit()"
-                        >
-                          {{ inlineEditSaving ? '保存中…' : '保存' }}
-                        </button>
-                      </div>
                     </div>
                   </template>
                   <template v-else>
@@ -1779,18 +1755,22 @@ onBeforeUnmount(() => {
             :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
             @click.stop
           >
-            <button class="menu-item" @click="previewFromContext()">👁 预览</button>
-            <button class="menu-item danger" @click="runClipAction('delete')">🗑 删除</button>
-          </div>
-
-          <div v-if="selectedIds.length > 0" class="selection-bar" @click.stop>
-            <div class="sel-count">{{ selectedIds.length }} 项已选择</div>
-            <div class="sel-actions">
-              <button class="sel-btn" @click="bulkCopyAsText()">复制文本</button>
-              <button class="sel-btn" @click="bulkAddToPasteStack()">加入 Stack</button>
-              <button class="sel-btn danger" @click="bulkDelete()">🗑 删除</button>
-              <button class="sel-btn" @click="clearSelection()">取消</button>
-            </div>
+            <button class="menu-item" @click="previewFromContext()">
+              <span class="menu-item-icon"><PanelIcon name="preview" /></span>
+              <span class="menu-item-label">预览</span>
+            </button>
+            <button
+              v-if="ctxItem && canOpenPreviewEdit(ctxItem)"
+              class="menu-item"
+              @click="editFromContext()"
+            >
+              <span class="menu-item-icon"><PanelIcon name="edit" /></span>
+              <span class="menu-item-label">编辑</span>
+            </button>
+            <button class="menu-item danger" @click="runClipAction('delete')">
+              <span class="menu-item-icon"><PanelIcon name="trash" /></span>
+              <span class="menu-item-label">删除</span>
+            </button>
           </div>
 
           <div v-if="toast" class="toast" @click.stop>{{ toast }}</div>
@@ -2114,12 +2094,14 @@ body {
 
 .more-btn {
   -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 15px;
   cursor: pointer;
-  padding: 5px 10px;
+  padding: 7px;
   border-radius: 10px;
 }
 
@@ -2178,10 +2160,6 @@ body {
   overflow: hidden;
   min-height: 0;
   position: relative;
-}
-
-.main-panel.with-selection-bar {
-  padding-bottom: 62px;
 }
 
 .filter-btn {
@@ -2498,6 +2476,9 @@ body {
 }
 
 .card-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   color: var(--text-secondary);
@@ -2605,34 +2586,6 @@ body {
   color: inherit;
   padding: 0 2px;
   border-radius: 4px;
-}
-
-.inline-editor {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  min-height: 0;
-}
-
-.inline-edit-area {
-  width: 100%;
-  min-height: 92px;
-  resize: none;
-  border: 1px solid var(--accent-border);
-  background: color-mix(in srgb, var(--bg-surface) 86%, var(--accent-fill));
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 8px 10px;
-  font-size: 13px;
-  line-height: 1.45;
-  outline: none;
-}
-
-.inline-edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 5px;
 }
 
 .image-box {
@@ -2758,6 +2711,9 @@ body {
 .menu-item {
   width: 100%;
   text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   background: transparent;
   border: none;
   border-radius: 10px;
@@ -2773,6 +2729,19 @@ body {
 
 .menu-item.danger {
   color: var(--danger-color);
+}
+
+.menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  flex: 0 0 auto;
+}
+
+.menu-item-label {
+  min-width: 0;
+  flex: 1;
 }
 
 .menu-sep {
@@ -2796,43 +2765,6 @@ body {
   max-width: 520px;
 }
 
-.selection-bar {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  margin: 0;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border-color);
-  background: rgba(0, 0, 0, 0.03);
-  backdrop-filter: blur(18px);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  z-index: 15;
-}
-
-@media (prefers-color-scheme: dark) {
-  .selection-bar {
-    background: rgba(255, 255, 255, 0.04);
-  }
-}
-
-.sel-count {
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: nowrap;
-}
-
-.sel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
 @keyframes spin {
   from {
     transform: rotate(0deg);
@@ -2840,24 +2772,6 @@ body {
   to {
     transform: rotate(360deg);
   }
-}
-
-.sel-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  padding: 6px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.sel-btn:hover {
-  background: var(--bg-surface);
-}
-
-.sel-btn.danger {
-  color: var(--danger-color);
 }
 
 .preview-overlay {

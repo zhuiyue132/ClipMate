@@ -1,11 +1,36 @@
 import { BrowserWindow } from 'electron'
 import { createSharedWebPreferences, loadRendererEntry } from './common'
+import type { SettingsTabId } from '../../shared/types'
 
 let settingsWindow: BrowserWindow | null = null
 
-export function createSettingsWindow(): BrowserWindow {
+function buildSettingsRoute(tab?: SettingsTabId): string {
+  if (!tab) return '/settings'
+  const params = new URLSearchParams({ tab })
+  return `/settings?${params.toString()}`
+}
+
+function sendSettingsTab(tab: SettingsTabId): void {
+  settingsWindow?.webContents.send('window:settingsTab', tab)
+}
+
+export function createSettingsWindow(options?: { tab?: SettingsTabId }): BrowserWindow {
+  const tab = options?.tab
+
   if (settingsWindow && !settingsWindow.isDestroyed()) {
+    if (!settingsWindow.isVisible()) {
+      settingsWindow.show()
+    }
     settingsWindow.focus()
+    if (tab) {
+      if (settingsWindow.webContents.isLoadingMainFrame()) {
+        settingsWindow.webContents.once('did-finish-load', () => {
+          sendSettingsTab(tab)
+        })
+      } else {
+        sendSettingsTab(tab)
+      }
+    }
     return settingsWindow
   }
 
@@ -28,7 +53,7 @@ export function createSettingsWindow(): BrowserWindow {
     settingsWindow = null
   })
 
-  loadRendererEntry(settingsWindow, '/settings')
+  loadRendererEntry(settingsWindow, buildSettingsRoute(tab))
   return settingsWindow
 }
 

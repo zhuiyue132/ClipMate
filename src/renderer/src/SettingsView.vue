@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type {
   AppSettings,
+  SettingsTabId,
   SettingsSnapshot,
   ShortcutAction,
   ShortcutRegistrationState,
@@ -12,9 +13,7 @@ import type {
   UpdateState
 } from '../../shared/types'
 
-type SettingsTab = 'general' | 'privacy' | 'storage' | 'sync' | 'about'
-
-const tabs: Array<{ value: SettingsTab; label: string }> = [
+const tabs: Array<{ value: SettingsTabId; label: string }> = [
   { value: 'general', label: '通用' },
   { value: 'privacy', label: '隐私' },
   { value: 'storage', label: '存储' },
@@ -34,7 +33,7 @@ const shortcutLabels: Array<{ key: ShortcutAction; label: string; hint: string }
   { key: 'newLinkItem', label: '新建链接', hint: '窗口内快捷键' }
 ]
 
-const tab = ref<SettingsTab>('general')
+const tab = ref<SettingsTabId>('general')
 const settings = ref<AppSettings | null>(null)
 const syncState = ref<SyncState>({
   enabled: false,
@@ -63,6 +62,26 @@ const manualBundleId = ref('')
 const manualBundleName = ref('')
 let toastTimer: number | null = null
 let unsubSettings: (() => void) | null = null
+let unsubSettingsTab: (() => void) | null = null
+
+function parseSettingsTabFromHash(): SettingsTabId | null {
+  const [, query = ''] = window.location.hash.split('?')
+  const params = new URLSearchParams(query)
+  const nextTab = params.get('tab')
+  return tabs.some((item) => item.value === nextTab) ? (nextTab as SettingsTabId) : null
+}
+
+function updateSettingsHash(nextTab: SettingsTabId): void {
+  const params = new URLSearchParams({ tab: nextTab })
+  const nextHash = `#/settings?${params.toString()}`
+  if (window.location.hash !== nextHash) {
+    window.history.replaceState(null, '', nextHash)
+  }
+}
+
+function setTab(nextTab: SettingsTabId): void {
+  tab.value = nextTab
+}
 
 function applyTheme(theme: ThemePreference): void {
   const root = document.documentElement
@@ -246,17 +265,26 @@ async function installDownloadedUpdate(): Promise<void> {
 }
 
 onMounted(async () => {
+  setTab(parseSettingsTabFromHash() ?? 'general')
   await loadSnapshot()
   unsubSettings = window.api.onSettingsChanged((snapshot) => {
     applySnapshot(snapshot)
+  })
+  unsubSettingsTab = window.api.onSettingsTabRequested((nextTab) => {
+    setTab(nextTab)
   })
 })
 
 onBeforeUnmount(() => {
   unsubSettings?.()
+  unsubSettingsTab?.()
   if (toastTimer) {
     window.clearTimeout(toastTimer)
   }
+})
+
+watch(tab, (nextTab) => {
+  updateSettingsHash(nextTab)
 })
 </script>
 
@@ -277,7 +305,7 @@ onBeforeUnmount(() => {
           :key="item.value"
           class="tab-btn"
           :class="{ active: tab === item.value }"
-          @click="tab = item.value"
+          @click="setTab(item.value)"
         >
           {{ item.label }}
         </button>

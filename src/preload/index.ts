@@ -9,7 +9,9 @@ import type {
   HistoryMutationEvent,
   PanelSnapshot,
   PanelPerformanceMark,
+  PreviewOpenMode,
   SettingsSnapshot,
+  SettingsTabId,
   PasteStackState,
   SearchFilters,
   SyncState,
@@ -117,14 +119,24 @@ const api = {
 
   // 窗口操作
   hideWindow: (): void => ipcRenderer.send('window:hide'),
-  showSettings: (): void => ipcRenderer.send('window:showSettings'),
-  showPreview: (itemId: string): void => ipcRenderer.send('window:showPreview', itemId),
+  showSettings: (options?: { tab?: SettingsTabId }): void =>
+    ipcRenderer.send('window:showSettings', options),
+  showPreview: (itemId: string, options?: { mode?: PreviewOpenMode }): void =>
+    ipcRenderer.send('window:showPreview', itemId, options),
   closeCurrentWindow: (): void => ipcRenderer.send('window:closeSelf'),
   quitApp: (): void => ipcRenderer.send('app:quit'),
-  onPreviewItemRequested: (callback: (itemId: string) => void): (() => void) => {
-    const listener = (_event, itemId: string): void => callback(itemId)
+  onPreviewItemRequested: (
+    callback: (request: { itemId: string; mode: PreviewOpenMode }) => void
+  ): (() => void) => {
+    const listener = (_event, request: { itemId: string; mode: PreviewOpenMode }): void =>
+      callback(request)
     ipcRenderer.on('window:previewItem', listener)
     return () => ipcRenderer.removeListener('window:previewItem', listener)
+  },
+  onSettingsTabRequested: (callback: (tab: SettingsTabId) => void): (() => void) => {
+    const listener = (_event, tab: SettingsTabId): void => callback(tab)
+    ipcRenderer.on('window:settingsTab', listener)
+    return () => ipcRenderer.removeListener('window:settingsTab', listener)
   },
 
   // 系统权限

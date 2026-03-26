@@ -95,6 +95,9 @@ export interface AppIconTarget {
   name: string | null
 }
 
+export type PreviewOpenMode = 'view' | 'edit'
+export type SettingsTabId = 'general' | 'privacy' | 'storage' | 'sync' | 'about'
+
 export interface PasteStackEntry {
   entry_id: string
   item_id: string
@@ -267,11 +270,14 @@ export interface IpcApi {
 
   // Window
   hideWindow: () => void
-  showSettings: () => void
-  showPreview: (itemId: string) => void
+  showSettings: (options?: { tab?: SettingsTabId }) => void
+  showPreview: (itemId: string, options?: { mode?: PreviewOpenMode }) => void
   closeCurrentWindow: () => void
   quitApp: () => void
-  onPreviewItemRequested: (callback: (itemId: string) => void) => () => void
+  onPreviewItemRequested: (
+    callback: (request: { itemId: string; mode: PreviewOpenMode }) => void
+  ) => () => void
+  onSettingsTabRequested: (callback: (tab: SettingsTabId) => void) => () => void
 
   // System
   getAccessibilityPermission: () => Promise<boolean>

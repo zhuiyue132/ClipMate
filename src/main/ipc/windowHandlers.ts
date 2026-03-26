@@ -5,6 +5,7 @@ import {
   hideMainWindow,
   toggleMainWindow
 } from '../windows'
+import type { PreviewOpenMode, SettingsTabId } from '../../shared/types'
 
 export function registerWindowIpcHandlers(): void {
   ipcMain.on('window:hide', () => {
@@ -15,13 +16,16 @@ export function registerWindowIpcHandlers(): void {
     toggleMainWindow()
   })
 
-  ipcMain.on('window:showSettings', () => {
-    createSettingsWindow()
+  ipcMain.on('window:showSettings', (_event, options?: { tab?: SettingsTabId }) => {
+    createSettingsWindow(options)
   })
 
-  ipcMain.on('window:showPreview', (_event, itemId: string) => {
-    createPreviewWindow(itemId)
-  })
+  ipcMain.on(
+    'window:showPreview',
+    (_event, itemId: string, options?: { mode?: PreviewOpenMode }) => {
+      createPreviewWindow(itemId, options)
+    }
+  )
 
   ipcMain.on('window:closeSelf', (event) => {
     BrowserWindow.fromWebContents(event.sender)?.close()

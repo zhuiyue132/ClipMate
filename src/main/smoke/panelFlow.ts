@@ -66,8 +66,8 @@ function seedSmokeItems(): SeededSmokeItems {
 
   const editableId = randomUUID()
   const previewId = randomUUID()
-  const editableText = `${token} editable entry for inline editing`
-  const updatedText = `${token} inline edit saved`
+  const editableText = `${token} editable entry for preview editing`
+  const updatedText = `${token} preview edit saved`
   const previewText = `${token} preview body for smoke validation`
   const searchToken = `${token} SEARCH`
   const liveClipboardText = `${token} LIVE_CLIPBOARD`
@@ -224,6 +224,55 @@ export async function runPanelSmokeTest(options: SmokeOptions): Promise<void> {
       })()
     `)
 
+    const selectionState = await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        const card = document.querySelector('[data-card-id="${seeded.editableId}"]')
+        if (!card) return { ok: false, reason: 'missing-selection-card' }
+        card.click()
+        await new Promise((resolve) => setTimeout(resolve, 120))
+        return {
+          ok: card.classList.contains('selected') && card.classList.contains('active'),
+          stillVisible: Boolean(document.querySelector('.cards-viewport'))
+        }
+      })()
+    `)
+    assert(selectionState.ok, `Selection flow failed: ${JSON.stringify(selectionState)}`)
+    result.selection = selectionState
+
+    await mainWindow.webContents.executeJavaScript(`
+      window.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: 'Enter',
+          bubbles: true
+        })
+      )
+    `)
+
+    await waitFor(
+      () => {
+        const window = options.getMainWindow()
+        if (!window || window.isDestroyed()) return null
+        return window.isVisible() ? null : true
+      },
+      3_500,
+      'main window to hide after keyboard paste'
+    )
+    result.activation = { ok: true }
+
+    await options.openPanel()
+    await waitFor(
+      () => {
+        const window = options.getMainWindow()
+        if (!window || window.isDestroyed() || !window.isVisible()) {
+          return null
+        }
+        return true
+      },
+      4_000,
+      'main window to reopen after keyboard paste'
+    )
+    await delay(220)
+
     const editState = await mainWindow.webContents.executeJavaScript(`
       (async () => {
         const card = document.querySelector('[data-card-id="${seeded.editableId}"]')
@@ -231,26 +280,52 @@ export async function runPanelSmokeTest(options: SmokeOptions): Promise<void> {
         const editButton = card.querySelector('.card-tool-btn')
         if (!editButton) return { ok: false, reason: 'missing-edit-button' }
         editButton.click()
-        await new Promise((resolve) => setTimeout(resolve, 180))
-        const editor = document.querySelector('.inline-edit-area')
-        if (!editor) return { ok: false, reason: 'missing-inline-editor' }
-        editor.value = ${JSON.stringify(seeded.updatedText)}
-        editor.dispatchEvent(new Event('input', { bubbles: true }))
-        await new Promise((resolve) => setTimeout(resolve, 40))
-        const saveButton = document.querySelector('.inline-edit-actions .primary-btn.compact')
-        if (!saveButton) return { ok: false, reason: 'missing-inline-save-button' }
-        saveButton.click()
         return { ok: true }
       })()
     `)
-    assert(editState.ok, `Inline edit flow failed: ${editState.reason ?? 'unknown error'}`)
+    assert(editState.ok, `Preview edit launch failed: ${editState.reason ?? 'unknown error'}`)
+
+    const previewEditWindow = await waitFor(
+      () => {
+        const window = getPreviewWindow()
+        if (!window || window.isDestroyed() || !window.isVisible()) {
+          return null
+        }
+        return window
+      },
+      4_000,
+      'preview edit window to become visible'
+    )
+    await waitForWindowLoad(previewEditWindow)
+
+    const previewEditState = await previewEditWindow.webContents.executeJavaScript(`
+      (async () => {
+        const editor = document.querySelector('.edit-area')
+        if (!editor) return { ok: false, reason: 'missing-preview-editor', hash: window.location.hash }
+        editor.focus()
+        editor.value = ${JSON.stringify(seeded.updatedText)}
+        editor.dispatchEvent(new Event('input', { bubbles: true }))
+        await new Promise((resolve) => setTimeout(resolve, 40))
+        const saveButton = document.querySelector('.preview-actions .icon-btn[title="保存"]')
+        if (!saveButton) {
+          return { ok: false, reason: 'missing-preview-save-button', hash: window.location.hash }
+        }
+        saveButton.click()
+        return { ok: true, hash: window.location.hash }
+      })()
+    `)
+    assert(
+      previewEditState.ok,
+      `Preview edit state failed: ${previewEditState.reason ?? 'unknown error'}`
+    )
 
     await waitFor(
       () => (getClipItemById(seeded.editableId)?.plain_text === seeded.updatedText ? true : null),
       3_500,
-      'edited smoke item to persist'
+      'preview-edited smoke item to persist'
     )
     result.edit = { ok: true }
+    getPreviewWindow()?.close()
 
     clipboard.writeText(seeded.liveClipboardText)
     await captureClipboardBurst(900, 60)

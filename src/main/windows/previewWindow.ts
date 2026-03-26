@@ -1,13 +1,24 @@
 import { BrowserWindow, shell } from 'electron'
 import { createSharedWebPreferences, loadRendererEntry } from './common'
+import type { PreviewOpenMode } from '../../shared/types'
 
 let previewWindow: BrowserWindow | null = null
 
-function buildPreviewRoute(itemId: string): string {
-  return `/preview?itemId=${encodeURIComponent(itemId)}`
+function buildPreviewRoute(itemId: string, mode: PreviewOpenMode = 'view'): string {
+  const params = new URLSearchParams({ itemId, mode })
+  return `/preview?${params.toString()}`
 }
 
-export function createPreviewWindow(itemId: string): BrowserWindow {
+function sendPreviewRequest(itemId: string, mode: PreviewOpenMode): void {
+  previewWindow?.webContents.send('window:previewItem', { itemId, mode })
+}
+
+export function createPreviewWindow(
+  itemId: string,
+  options?: { mode?: PreviewOpenMode }
+): BrowserWindow {
+  const mode = options?.mode ?? 'view'
+
   if (previewWindow && !previewWindow.isDestroyed()) {
     if (!previewWindow.isVisible()) {
       previewWindow.show()
@@ -16,10 +27,10 @@ export function createPreviewWindow(itemId: string): BrowserWindow {
 
     if (previewWindow.webContents.isLoadingMainFrame()) {
       previewWindow.webContents.once('did-finish-load', () => {
-        previewWindow?.webContents.send('window:previewItem', itemId)
+        sendPreviewRequest(itemId, mode)
       })
     } else {
-      previewWindow.webContents.send('window:previewItem', itemId)
+      sendPreviewRequest(itemId, mode)
     }
 
     return previewWindow
@@ -54,7 +65,7 @@ export function createPreviewWindow(itemId: string): BrowserWindow {
     return { action: 'deny' }
   })
 
-  loadRendererEntry(previewWindow, buildPreviewRoute(itemId))
+  loadRendererEntry(previewWindow, buildPreviewRoute(itemId, mode))
   return previewWindow
 }
 

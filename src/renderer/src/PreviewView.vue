@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import type {
   ClipItem,
   HistoryMutationEvent,
+  PreviewOpenMode,
   SettingsSnapshot,
   ThemePreference
 } from '../../shared/types'
@@ -17,6 +18,8 @@ const renameOpen = ref(false)
 const renameDraft = ref('')
 const colorDraft = ref('#007AFF')
 const toast = ref<string | null>(null)
+const editAreaRef = ref<HTMLTextAreaElement | null>(null)
+const linkEditRef = ref<HTMLInputElement | null>(null)
 
 let toastTimer: number | null = null
 let loadSeq = 0
@@ -24,6 +27,10 @@ let currentItemId: string | null = null
 let unsubSettings: (() => void) | null = null
 let unsubHistoryMutation: (() => void) | null = null
 let unsubPreviewItem: (() => void) | null = null
+
+function isTextEditableType(type: ClipItem['type'] | undefined): boolean {
+  return type === 'text' || type === 'richtext'
+}
 
 function previewItemAffected(mutation: HistoryMutationEvent): boolean {
   if (!currentItemId) return false
@@ -101,7 +108,7 @@ const previewLinkMeta = computed(() => {
 const previewTitle = computed(() => previewItem.value?.title?.trim() ?? '')
 const previewBodyEditing = computed(() => {
   const type = previewItem.value?.type
-  return editMode.value && (type === 'text' || type === 'richtext')
+  return editMode.value && isTextEditableType(type)
 })
 
 function getFilePaths(item: ClipItem): string[] {
@@ -117,17 +124,68 @@ function getFilePaths(item: ClipItem): string[] {
   }
 }
 
-function parsePreviewItemIdFromHash(): string | null {
-  const [, query = ''] = window.location.hash.split('?')
-  const params = new URLSearchParams(query)
-  return params.get('itemId')
+function currentPreviewMode(): PreviewOpenMode {
+  return editMode.value || linkEditMode.value ? 'edit' : 'view'
 }
 
-function updatePreviewHash(itemId: string): void {
-  const nextHash = `#/preview?itemId=${encodeURIComponent(itemId)}`
+function parsePreviewRequestFromHash(): { itemId: string; mode: PreviewOpenMode } | null {
+  const [, query = ''] = window.location.hash.split('?')
+  const params = new URLSearchParams(query)
+  const itemId = params.get('itemId')
+  if (!itemId) return null
+  return {
+    itemId,
+    mode: params.get('mode') === 'edit' ? 'edit' : 'view'
+  }
+}
+
+function updatePreviewHash(itemId: string, mode: PreviewOpenMode = currentPreviewMode()): void {
+  const params = new URLSearchParams({ itemId, mode })
+  const nextHash = `#/preview?${params.toString()}`
   if (window.location.hash !== nextHash) {
     window.history.replaceState(null, '', nextHash)
   }
+}
+
+async function focusActiveEditor(): Promise<void> {
+  await nextTick()
+  if (editMode.value) {
+    editAreaRef.value?.focus()
+    editAreaRef.value?.setSelectionRange(editText.value.length, editText.value.length)
+    return
+  }
+  if (linkEditMode.value) {
+    linkEditRef.value?.focus()
+    linkEditRef.value?.setSelectionRange(linkDraft.value.length, linkDraft.value.length)
+  }
+}
+
+function applyPreviewMode(item: ClipItem, mode: PreviewOpenMode): void {
+  renameOpen.value = false
+
+  if (mode === 'edit') {
+    if (isTextEditableType(item.type)) {
+      editMode.value = true
+      linkEditMode.value = false
+      editText.value = item.plain_text ?? item.content ?? ''
+      updatePreviewHash(item.id, 'edit')
+      void focusActiveEditor()
+      return
+    }
+
+    if (item.type === 'link') {
+      editMode.value = false
+      linkEditMode.value = true
+      linkDraft.value = item.content
+      updatePreviewHash(item.id, 'edit')
+      void focusActiveEditor()
+      return
+    }
+  }
+
+  editMode.value = false
+  linkEditMode.value = false
+  updatePreviewHash(item.id, 'view')
 }
 
 function hydratePreviewItem(item: ClipItem, preserveDrafts = false): void {
@@ -149,7 +207,7 @@ function hydratePreviewItem(item: ClipItem, preserveDrafts = false): void {
 
 async function loadPreviewItem(
   itemId: string,
-  options: { preserveDrafts?: boolean; closeWhenMissing?: boolean } = {}
+  options: { preserveDrafts?: boolean; closeWhenMissing?: boolean; mode?: PreviewOpenMode } = {}
 ): Promise<void> {
   const seq = ++loadSeq
   previewLoading.value = true
@@ -168,7 +226,11 @@ async function loadPreviewItem(
     }
 
     currentItemId = item.id
-    updatePreviewHash(item.id)
+    if (options.mode) {
+      applyPreviewMode(item, options.mode)
+    } else {
+      updatePreviewHash(item.id)
+    }
     if (
       previewItem.value &&
       previewItem.value.id === item.id &&
@@ -209,11 +271,15 @@ async function pastePreview(plainText = false): Promise<void> {
 
 function toggleEdit(): void {
   const item = previewItem.value
-  if (!item || (item.type !== 'text' && item.type !== 'richtext')) return
+  if (!item || !isTextEditableType(item.type)) return
   linkEditMode.value = false
   editMode.value = !editMode.value
   if (editMode.value) {
     editText.value = item.plain_text ?? item.content ?? ''
+    updatePreviewHash(item.id, 'edit')
+    void focusActiveEditor()
+  } else {
+    updatePreviewHash(item.id, 'view')
   }
 }
 
@@ -224,6 +290,10 @@ function toggleLinkEdit(): void {
   linkEditMode.value = !linkEditMode.value
   if (linkEditMode.value) {
     linkDraft.value = item.content
+    updatePreviewHash(item.id, 'edit')
+    void focusActiveEditor()
+  } else {
+    updatePreviewHash(item.id, 'view')
   }
 }
 
@@ -260,6 +330,7 @@ async function saveTextEdit(): Promise<void> {
   await window.api.updateClipItemText(item.id, editText.value)
   await refreshPreviewItem()
   editMode.value = false
+  updatePreviewHash(item.id, 'view')
   showToast('已保存文本')
 }
 
@@ -269,6 +340,7 @@ async function saveLinkEdit(): Promise<void> {
   await window.api.updateClipItemLink(item.id, linkDraft.value)
   await refreshPreviewItem()
   linkEditMode.value = false
+  updatePreviewHash(item.id, 'view')
   showToast('已更新链接')
 }
 
@@ -433,21 +505,21 @@ onMounted(async () => {
       void refreshPreviewItem(true)
     }
   })
-  unsubPreviewItem = window.api.onPreviewItemRequested((itemId) => {
-    editMode.value = false
-    linkEditMode.value = false
-    renameOpen.value = false
-    void loadPreviewItem(itemId)
+  unsubPreviewItem = window.api.onPreviewItemRequested((request) => {
+    void loadPreviewItem(request.itemId, { mode: request.mode })
   })
   window.addEventListener('keydown', onWindowKeyDown)
 
-  const initialItemId = parsePreviewItemIdFromHash()
-  if (!initialItemId) {
+  const initialRequest = parsePreviewRequestFromHash()
+  if (!initialRequest) {
     closePreviewWindow()
     return
   }
 
-  await loadPreviewItem(initialItemId, { closeWhenMissing: true })
+  await loadPreviewItem(initialRequest.itemId, {
+    closeWhenMissing: true,
+    mode: initialRequest.mode
+  })
 })
 
 onBeforeUnmount(() => {
@@ -536,7 +608,12 @@ onBeforeUnmount(() => {
           </div>
 
           <template v-if="previewItem.type === 'text' || previewItem.type === 'richtext'">
-            <textarea v-if="editMode" v-model="editText" class="edit-area"></textarea>
+            <textarea
+              v-if="editMode"
+              ref="editAreaRef"
+              v-model="editText"
+              class="edit-area"
+            ></textarea>
             <pre v-else class="preview-text">{{
               previewItem.plain_text || previewItem.content
             }}</pre>
@@ -544,7 +621,12 @@ onBeforeUnmount(() => {
 
           <template v-else-if="previewItem.type === 'link'">
             <div v-if="linkEditMode" class="rename-row">
-              <input v-model="linkDraft" class="rename-input" placeholder="https://example.com" />
+              <input
+                ref="linkEditRef"
+                v-model="linkDraft"
+                class="rename-input"
+                placeholder="https://example.com"
+              />
               <button class="primary-btn" @click="saveLinkEdit()">保存链接</button>
             </div>
             <div v-if="previewLinkMeta" class="link-meta-card">
@@ -638,16 +720,28 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+}
+
 .preview-shell {
   position: relative;
   width: 100vw;
   height: 100vh;
   padding: 12px;
+  display: flex;
+  min-height: 0;
 }
 
 .preview-window-standalone {
   width: 100%;
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .preview-window-standalone .preview-header {
@@ -656,6 +750,21 @@ onBeforeUnmount(() => {
 
 .preview-window-standalone .preview-actions {
   -webkit-app-region: no-drag;
+}
+
+.preview-window-standalone .preview-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.preview-window-standalone .preview-body.preview-body-editing {
+  overflow: hidden;
+}
+
+.preview-window-standalone .edit-area {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 
 .preview-meta {
