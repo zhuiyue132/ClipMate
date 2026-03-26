@@ -84,4 +84,4 @@ runOrExit('render tray icons', 'xcrun', [
 ])
 
 console.log(`[icons] built app icon: ${outputIconIcnsPath}`)
-console.log(`[icons] built tray icons: ${buildTrayDir}`)
+console.log(`[icons] built active tray icons: ${buildTrayDir}`)

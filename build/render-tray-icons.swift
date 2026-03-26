@@ -4,14 +4,11 @@ import Foundation
 struct TrayVariant {
   let fileName: String
   let size: CGFloat
-  let paused: Bool
 }
 
 let variants = [
-  TrayVariant(fileName: "clipmate-tray.png", size: 18, paused: false),
-  TrayVariant(fileName: "clipmate-tray@2x.png", size: 36, paused: false),
-  TrayVariant(fileName: "clipmate-tray-paused.png", size: 18, paused: true),
-  TrayVariant(fileName: "clipmate-tray-paused@2x.png", size: 36, paused: true),
+  TrayVariant(fileName: "clipmate-tray.png", size: 18),
+  TrayVariant(fileName: "clipmate-tray@2x.png", size: 36),
 ]
 
 func exitWithError(_ message: String) -> Never {
@@ -30,47 +27,7 @@ func pngData(from image: NSImage) -> Data? {
   return bitmap.representation(using: .png, properties: [:])
 }
 
-func clearPauseBars(in rect: NSRect) {
-  guard let context = NSGraphicsContext.current?.cgContext else {
-    return
-  }
-
-  let barWidth = max(1.75, rect.width * 0.15)
-  let barHeight = rect.height * 0.46
-  let gap = rect.width * 0.1
-  let originX = (rect.width - (barWidth * 2) - gap) / 2
-  let originY = (rect.height - barHeight) / 2
-  let radius = min(barWidth / 2, 2.4)
-
-  context.saveGState()
-  context.setBlendMode(.clear)
-
-  let leftBar = CGPath(
-    roundedRect: CGRect(x: originX, y: originY, width: barWidth, height: barHeight),
-    cornerWidth: radius,
-    cornerHeight: radius,
-    transform: nil
-  )
-  context.addPath(leftBar)
-  context.fillPath()
-
-  let rightBar = CGPath(
-    roundedRect: CGRect(
-      x: originX + barWidth + gap,
-      y: originY,
-      width: barWidth,
-      height: barHeight
-    ),
-    cornerWidth: radius,
-    cornerHeight: radius,
-    transform: nil
-  )
-  context.addPath(rightBar)
-  context.fillPath()
-  context.restoreGState()
-}
-
-func renderTemplateIcon(from sourceImage: NSImage, size: CGFloat, paused: Bool) -> NSImage {
+func renderTemplateIcon(from sourceImage: NSImage, size: CGFloat) -> NSImage {
   let canvasSize = NSSize(width: size, height: size)
   let canvas = NSImage(size: canvasSize)
   let rect = NSRect(origin: .zero, size: canvasSize)
@@ -82,23 +39,19 @@ func renderTemplateIcon(from sourceImage: NSImage, size: CGFloat, paused: Bool) 
   NSColor.black.setFill()
   rect.fill(using: .sourceIn)
 
-  if paused {
-    clearPauseBars(in: rect)
-  }
-
   return canvas
 }
 
 let arguments = CommandLine.arguments
 guard arguments.count == 3 else {
-  exitWithError("usage: xcrun swift build/render-tray-icons.swift <source-png> <output-dir>")
+  exitWithError("usage: xcrun swift build/render-tray-icons.swift <active-source-png> <output-dir>")
 }
 
-let sourcePath = arguments[1]
+let activeSourcePath = arguments[1]
 let outputDirectory = URL(fileURLWithPath: arguments[2], isDirectory: true)
 
-guard let sourceImage = NSImage(contentsOfFile: sourcePath) else {
-  exitWithError("failed to load source image: \(sourcePath)")
+guard let activeSourceImage = NSImage(contentsOfFile: activeSourcePath) else {
+  exitWithError("failed to load active tray source image: \(activeSourcePath)")
 }
 
 let fileManager = FileManager.default
@@ -110,7 +63,7 @@ do {
 }
 
 for variant in variants {
-  let rendered = renderTemplateIcon(from: sourceImage, size: variant.size, paused: variant.paused)
+  let rendered = renderTemplateIcon(from: activeSourceImage, size: variant.size)
   guard let data = pngData(from: rendered) else {
     exitWithError("failed to encode PNG for \(variant.fileName)")
   }

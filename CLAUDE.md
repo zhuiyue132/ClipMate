@@ -21,7 +21,7 @@ npm run format                 # Format with prettier
 # Building
 npm run build                  # Production build
 npm run build:ocr-helper       # Compile Swift OCR helper
-npm run build:mac              # Build macOS .dmg + .zip with code signing
+npm run build:mac              # Build macOS .dmg + .zip (includes OCR helper)
 
 # Testing & Verification
 npm run verify:ocr             # Run OCR fixture tests (macOS only)
@@ -68,13 +68,14 @@ src/main/
 - `StackDockView.vue` - Paste Stack visualization
 - Hash-based routing via `window.location.hash` (no router library)
 
-### Database Schema
+### Database
 
-Single table `clip_items`:
+Single table `clip_items` in SQLite (WAL mode, FTS5 full-text search):
 
 - Fields: id (UUID), type, content, plain_text, ocr_text, source_app, title, thumbnail, link_meta, is_pinned, created_at, etc.
 - FTS5 index on plain_text, title, ocr_text, link_text
 - Path: `Electron.app.getPath('userData')/clipmate.db`
+- Search/summary logic: `src/main/database/clipItems.ts` - don't re-process in renderer
 
 ### Key Data Flows
 
@@ -85,9 +86,7 @@ Single table `clip_items`:
 
 ### IPC Communication
 
-All IPC channels defined in `src/preload/index.ts` and handled in `src/main/ipc/`.
-
-Key patterns:
+All IPC channels defined in `src/preload/index.ts` and handled in `src/main/ipc/`. The stable boundary between Main/Renderer is `src/shared/types.ts` + the preload IPC API.
 
 - Renderer invokes via `window.api.methodName()`
 - Main broadcasts events via `webContents.send('event:name', data)`
@@ -95,36 +94,25 @@ Key patterns:
 
 ## Platform Constraints
 
-**macOS-only dependencies:**
-
 - osascript for paste simulation and app switching
 - Vision framework for OCR (Swift helper: `resources/ocr/vision_ocr.swift`)
-- Quick Look integration
-- Menubar/tray behavior
-- Accessibility permission required for auto-paste
-- Screen recording permission for content protection
+- Quick Look, Menubar/tray, Accessibility permission (auto-paste), Screen recording permission (content protection)
+- OCR in dev requires local Swift toolchain; packaged builds bundle precompiled universal binary
+- Auto-update only works in packaged app, not dev mode
 
-**Swift OCR helper:**
+## Code Modification Guidelines
 
-- Source: `resources/ocr/vision_ocr.swift`
-- Build: `npm run build:ocr-helper` compiles to `build/generated-resources/ocr/vision_ocr`
-- Packaged builds bundle precompiled universal binary
+### New features cross boundaries
 
-## Code Modification Patterns
+New capabilities often touch `shared types → preload → ipc → main → renderer` as a chain. Assess the full path before starting.
 
-### When modifying clipboard capture
+### App.vue is the maintenance hotspot
 
-- Update `src/main/clipboard/watcher.ts` for polling logic
-- Update `src/main/clipboard/content.ts` for type detection
-- Broadcast `history:mutation` events after database writes
-- Test with `npm run smoke:panel`
+At >3k lines, avoid adding more logic here. Prioritize controlling scope and consider extraction.
 
-### When modifying panel UI
+### Search and summaries live in the database layer
 
-- Main panel: `src/renderer/src/App.vue` (>3k lines, high-risk area)
-- Update `src/shared/types.ts` for new data structures
-- Panel snapshot logic: `src/main/panelSnapshot.ts`
-- Test panel show/hide, search, filters, card selection
+`src/main/database/clipItems.ts` handles FTS, summary building, and queries. Don't replicate data processing in renderer.
 
 ### When adding IPC handlers
 
@@ -134,9 +122,39 @@ Key patterns:
 4. Update `src/shared/types.ts` for type safety
 5. Use parameterized queries for database operations
 
-### When modifying OCR
+### OCR modifications
 
 - Worker: `src/main/ocr/worker.ts`
 - Runtime: `src/main/ocr/runtime.ts` (uses `execFile`, not `exec`)
 - Verification: `npm run verify:ocr` (requires fixtures)
-- Image storage: `src/main/ocr/imageStorage.ts`
+
+### Real macOS testing required
+
+Changes to clipboard, shortcuts, or app switching need real macOS behavior validation - don't rely solely on code reading.
+
+### Distinguish "wired" vs "validated"
+
+For packaging, signing, notarization, auto-update, and system permissions: distinguish between "implementation exists in code" and "tested in actual release environment."
+
+## Tech Stack
+
+- **Electron**: 33, **Vue**: 3.5 (Composition API with `<script setup>`), **TypeScript**: strict mode
+- **Database**: better-sqlite3 with WAL, FTS5
+- **Build**: electron-vite + electron-builder
+- **Icons**: @tabler/icons-vue (UI), dynamic app icons via system API
+- **Linting**: ESLint 9 flat config + Prettier (semi: false, singleQuote: true, printWidth: 100)
+- **Pre-commit**: Husky + lint-staged
+
+## Terminology
+
+- 主面板 (main panel): the clipboard card window
+- 预览面板 (preview panel): the preview window opened from a clip item card
+- 设置面板 (settings panel): the settings window
+
+## Additional Documentation
+
+- Product overview: `README.md`
+- PRD: `docs/prd.md`
+- Release guide: `docs/release.md`
+- Agent guidance: `AGENTS.md`
+- Detailed context: `.codex/project-context.md`

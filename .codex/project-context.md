@@ -118,7 +118,8 @@
 ### 5.6 改托盘、图标或菜单栏交互
 
 - `src/main/tray.ts`
-- 应用图标与托盘图标现在以 `build/iconset-source/clipmate.iconset` 为源，通过 `build/prepare-icons.mjs` 生成 `build/icon.icns`、`build/icon.png` 和 `build/tray/*`
+- 应用图标与普通态托盘图标现在以 `build/iconset-source/clipmate.iconset` 为源，通过 `build/prepare-icons.mjs` 生成 `build/icon.icns`、`build/icon.png` 和 `build/tray/clipmate-tray*.png`
+- 暂停态托盘图标不参与生成，固定使用项目内的 `build/tray/clipmate-tray-paused.png`
 - 打包资源来自 `build/tray/*`，同时内置 fallback icon
 - Renderer 侧统一使用 `@tabler/icons-vue`，图标封装在 `src/renderer/src/components/UiIcon.vue`
 - 历史卡片来源应用图标仍通过 `system:getAppIcons` 动态获取，不走第三方图标库

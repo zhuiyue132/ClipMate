@@ -128,7 +128,7 @@
     "paste and app switching rely on osascript/open commands",
     "renderer main panel logic is concentrated in App.vue",
     "renderer UI icons use @tabler/icons-vue via src/renderer/src/components/UiIcon.vue, while source app icons are still fetched dynamically via system:getAppIcons",
-    "app icon and tray icon assets are generated from build/iconset-source/clipmate.iconset via build/prepare-icons.mjs",
+    "app icon and active tray icon assets are generated from build/iconset-source/clipmate.iconset via build/prepare-icons.mjs, while the paused tray icon is a fixed project asset at build/tray/clipmate-tray-paused.png",
     "auto update only works in packaged app",
     "OCR requires packaged helper or local swift toolchain in development"
   ],
