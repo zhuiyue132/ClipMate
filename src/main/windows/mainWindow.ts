@@ -3,7 +3,7 @@ import { createSharedWebPreferences, loadRendererEntry } from './common'
 
 let mainWindow: BrowserWindow | null = null
 
-const MAIN_WINDOW_HEIGHT = 384
+const MAIN_WINDOW_HEIGHT = 344
 const MAIN_WINDOW_SHOW_MS = 132
 const MAIN_WINDOW_HIDE_MS = 108
 

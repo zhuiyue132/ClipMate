@@ -99,6 +99,10 @@ const previewLinkMeta = computed(() => {
 })
 
 const previewTitle = computed(() => previewItem.value?.title?.trim() ?? '')
+const previewBodyEditing = computed(() => {
+  const type = previewItem.value?.type
+  return editMode.value && (type === 'text' || type === 'richtext')
+})
 
 function getFilePaths(item: ClipItem): string[] {
   if (item.type !== 'file') return []
@@ -517,7 +521,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="preview-body">
+      <div class="preview-body" :class="{ 'preview-body-editing': previewBodyEditing }">
         <div v-if="previewLoading" class="preview-loading">加载中…</div>
 
         <template v-else-if="previewItem">

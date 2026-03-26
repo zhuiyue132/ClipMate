@@ -97,8 +97,8 @@ const cardRefs = new Map<string, HTMLElement>()
 const cardsViewportWidth = ref(0)
 const cardsViewportScrollLeft = ref(0)
 
-const CARD_WIDTH = 236
-const CARD_GAP = 14
+const CARD_WIDTH = 224
+const CARD_GAP = 12
 const CARD_STRIDE = CARD_WIDTH + CARD_GAP
 const CARD_OVERSCAN = 3
 
@@ -1938,8 +1938,8 @@ body {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 14px;
-  padding: 14px 18px 12px;
+  gap: 12px;
+  padding: 11px 18px 9px;
   border-bottom: 1px solid var(--border-color);
   -webkit-app-region: no-drag;
   position: relative;
@@ -1959,9 +1959,9 @@ body {
 .header-controls {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 4px 0;
+  padding: 2px 0;
   overflow: visible;
 }
 
@@ -1969,7 +1969,7 @@ body {
   justify-self: end;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .action-anchor {
@@ -1981,11 +1981,11 @@ body {
 .chips {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   overflow-x: auto;
   max-width: min(58vw, 720px);
-  padding: 4px;
-  margin: -4px;
+  padding: 2px;
+  margin: -2px;
   scroll-behavior: smooth;
   scrollbar-width: none;
 }
@@ -1999,7 +1999,7 @@ body {
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   color: var(--text-secondary);
-  padding: 7px 12px;
+  padding: 6px 12px;
   border-radius: var(--radius-pill);
   font-size: 12px;
   font-weight: 500;
@@ -2041,7 +2041,7 @@ body {
 .search-shell {
   display: flex;
   align-items: center;
-  width: 38px;
+  width: 36px;
   flex: 0 0 auto;
   overflow: hidden;
   border: 1px solid var(--border-color);
@@ -2073,9 +2073,9 @@ body {
 }
 
 .search-toggle {
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
   border: none;
   background: transparent;
   color: var(--text-secondary);
@@ -2105,7 +2105,7 @@ body {
 }
 
 .search-input.compact {
-  height: 36px;
+  height: 34px;
 }
 
 .search-input::placeholder {
@@ -2117,9 +2117,9 @@ body {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  font-size: 16px;
+  font-size: 15px;
   cursor: pointer;
-  padding: 6px 10px;
+  padding: 5px 10px;
   border-radius: 10px;
 }
 
@@ -2145,14 +2145,14 @@ body {
   flex: 1;
   display: flex;
   min-height: 0;
-  padding: 14px 18px 22px;
+  padding: 8px 18px 14px;
   -webkit-app-region: no-drag;
   position: relative;
 }
 
 .banner {
   align-self: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   padding: 6px 10px;
   border-radius: 999px;
   font-size: 12px;
@@ -2188,7 +2188,7 @@ body {
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
   color: var(--text-primary);
-  padding: 6px 10px;
+  padding: 5px 10px;
   border-radius: 10px;
   font-size: 12px;
   cursor: pointer;
@@ -2343,7 +2343,7 @@ body {
   min-height: 0;
   width: 100%;
   max-width: 100%;
-  padding: 14px 14px 22px;
+  padding: 8px 12px 12px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
@@ -2356,19 +2356,19 @@ body {
 
 .cards-track {
   position: relative;
-  min-height: 254px;
-  padding: 0 2px 6px;
+  min-height: 232px;
+  padding: 0 2px 2px;
 }
 
 .card {
   position: absolute;
   isolation: isolate;
   top: 0;
-  width: 236px;
-  min-width: 236px;
-  height: 248px;
-  min-height: 248px;
-  max-height: 248px;
+  width: 224px;
+  min-width: 224px;
+  height: 232px;
+  min-height: 232px;
+  max-height: 232px;
   overflow: hidden;
   background: linear-gradient(
     180deg,
@@ -2377,10 +2377,10 @@ body {
   );
   border: 1px solid var(--border-color);
   border-radius: var(--radius-card);
-  padding: 12px;
+  padding: 10px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
   cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
   transition:
@@ -2478,14 +2478,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 7px;
   min-width: 0;
 }
 
 .card-heading {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 7px;
   min-width: 0;
   width: 100%;
 }
@@ -2493,7 +2493,7 @@ body {
 .card-tools {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-shrink: 0;
 }
 
@@ -2502,7 +2502,7 @@ body {
   background: var(--bg-surface);
   color: var(--text-secondary);
   border-radius: 999px;
-  padding: 5px 9px;
+  padding: 4px 7px;
   font-size: 11px;
   cursor: pointer;
 }
@@ -2517,12 +2517,12 @@ body {
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
+  gap: 5px;
+  padding: 3px 6px;
   border-radius: var(--radius-pill);
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   transition:
     background 0.18s ease,
@@ -2549,18 +2549,18 @@ body {
   flex-direction: column;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 10px;
+  gap: 7px;
   overflow: hidden;
 }
 
 .text-preview {
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.35;
   color: var(--text-primary);
   white-space: pre-wrap;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 7;
+  -webkit-line-clamp: 6;
   -webkit-box-orient: vertical;
   width: 100%;
 }
@@ -2576,12 +2576,12 @@ body {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .match-line {
   display: flex;
-  gap: 8px;
+  gap: 5px;
   font-size: 11px;
   line-height: 1.4;
   color: var(--text-secondary);
@@ -2611,19 +2611,19 @@ body {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
   min-height: 0;
 }
 
 .inline-edit-area {
   width: 100%;
-  min-height: 108px;
+  min-height: 92px;
   resize: none;
   border: 1px solid var(--accent-border);
   background: color-mix(in srgb, var(--bg-surface) 86%, var(--accent-fill));
   color: var(--text-primary);
-  border-radius: 14px;
-  padding: 10px 12px;
+  border-radius: 12px;
+  padding: 8px 10px;
   font-size: 13px;
   line-height: 1.45;
   outline: none;
@@ -2632,12 +2632,12 @@ body {
 .inline-edit-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 5px;
 }
 
 .image-box {
   width: 100%;
-  height: 136px;
+  height: 116px;
   border-radius: var(--radius-card-inner);
   border: 1px solid var(--border-color);
   background: var(--bg-surface);
@@ -2655,18 +2655,18 @@ body {
 
 .color-box {
   width: 100%;
-  height: 136px;
+  height: 116px;
   border-radius: var(--radius-card-inner);
   border: 1px solid var(--border-color);
   display: flex;
   align-items: flex-end;
   justify-content: flex-start;
-  padding: 10px;
+  padding: 7px;
   overflow: hidden;
 }
 
 .color-text {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.92);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
@@ -2675,18 +2675,19 @@ body {
 .card-footer {
   display: flex;
   justify-content: flex-start;
-  min-height: 40px;
+  min-height: 34px;
 }
 
 .app-pill {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 7px;
+  min-width: 0;
 }
 
 .app-dot {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border-radius: calc(var(--radius-card-inner) - 4px);
   display: inline-flex;
   align-items: center;
@@ -2714,9 +2715,9 @@ body {
 }
 
 .app-icon {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
   object-fit: cover;
   flex-shrink: 0;
@@ -2725,16 +2726,20 @@ body {
 .app-meta {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+  min-width: 0;
 }
 
 .app-name {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .time {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -2952,6 +2957,13 @@ body {
   padding: 14px;
 }
 
+.preview-body.preview-body-editing {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: hidden;
+}
+
 .preview-loading {
   color: var(--text-secondary);
   font-size: 13px;
@@ -2975,6 +2987,11 @@ body {
   align-items: center;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.preview-body.preview-body-editing .rename-row {
+  flex: 0 0 auto;
+  margin-bottom: 0;
 }
 
 .rename-input {
@@ -3028,6 +3045,13 @@ body {
   font-size: 13px;
   line-height: 1.5;
   outline: none;
+  overflow: auto;
+}
+
+.preview-body.preview-body-editing .edit-area {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
 .link-meta-card {
