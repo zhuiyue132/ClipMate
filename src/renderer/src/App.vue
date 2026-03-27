@@ -4,6 +4,9 @@ import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
 import StackDockView from './StackDockView.vue'
 import UiIcon from './components/UiIcon.vue'
+import PanelStateView from './components/panel/PanelStateView.vue'
+import PanelToolbar from './components/panel/PanelToolbar.vue'
+import ToastNotice from './components/panel/ToastNotice.vue'
 import type {
   AppSettings,
   AppIconTarget,
@@ -43,7 +46,6 @@ const paused = ref(false)
 const loading = ref(false)
 
 const search = ref('')
-const searchExpanded = ref(false)
 const moreOpen = ref(false)
 const filtersOpen = ref(false)
 const typeChip = ref<TypeChip>('all')
@@ -80,9 +82,7 @@ const ctxY = ref(0)
 const ctxItem = ref<HistoryCardItem | null>(null)
 
 const historyCardsRef = ref<HTMLElement | null>(null)
-const searchInputRef = ref<HTMLInputElement | null>(null)
-const searchToggleRef = ref<HTMLButtonElement | null>(null)
-const chipRailRef = ref<HTMLElement | null>(null)
+const toolbarRef = ref<InstanceType<typeof PanelToolbar> | null>(null)
 const panelPreparing = ref(false)
 const appIcons = ref<Record<string, string | null>>({})
 const appIconFailures = ref<Record<string, true>>({})
@@ -171,6 +171,25 @@ const isSearchActive = computed(() => {
   )
 })
 
+const filterActiveCount = computed(() => {
+  let count = 0
+  if (sourceAppFilter.value !== null) count += 1
+  if (datePreset.value !== 'all') count += 1
+  return count
+})
+
+const toolbarStatus = computed<{
+  kind: 'paused' | 'searching' | 'selection' | 'idle'
+  label: string
+} | null>(() => {
+  if (paused.value) return { kind: 'paused', label: '已暂停收集' }
+  if (searching.value) return { kind: 'searching', label: '搜索中' }
+  if (selectedIds.value.length > 1) {
+    return { kind: 'selection', label: `已选中 ${selectedIds.value.length} 项` }
+  }
+  return null
+})
+
 function itemMatchesActiveFilters(item: HistoryCardItem): boolean {
   const allowedTypes = typesForChip(typeChip.value)
   if (allowedTypes.length > 0 && !allowedTypes.includes(item.type)) return false
@@ -228,38 +247,19 @@ function normalizeHeaderFocusIndex(index: number): number {
   return (index + HEADER_CONTROL_COUNT) % HEADER_CONTROL_COUNT
 }
 
-function scrollFocusedHeaderControlIntoView(index = typeFocusIndex.value): void {
-  if (index === TYPE_OPTIONS.length) return
-
-  const rail = chipRailRef.value
-  if (!rail) return
-  const button = rail.querySelector<HTMLButtonElement>(`[data-chip-index="${index}"]`)
-  button?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' })
-}
-
 function focusHeaderControl(index: number): void {
   const nextIndex = normalizeHeaderFocusIndex(index)
   typeFocusIndex.value = nextIndex
 
   if (nextIndex === TYPE_OPTIONS.length) {
-    searchToggleRef.value?.focus({ preventScroll: true })
-    scrollFocusedHeaderControlIntoView(nextIndex)
+    toolbarRef.value?.focusSearch()
     return
   }
 
-  const rail = chipRailRef.value
-  if (!rail) return
-  const button = rail.querySelector<HTMLButtonElement>(`[data-chip-index="${nextIndex}"]`)
-  button?.focus({ preventScroll: true })
-  scrollFocusedHeaderControlIntoView(nextIndex)
+  toolbarRef.value?.focusChip(nextIndex)
 }
 
 function onChipFocus(index: number): void {
-  typeFocusIndex.value = index
-}
-
-function onChipClick(index: number): void {
-  typeChip.value = TYPE_OPTIONS[index].value
   typeFocusIndex.value = index
 }
 
@@ -279,11 +279,17 @@ function onChipKeyDown(event: KeyboardEvent, index: number): void {
   }
 }
 
-function onSearchToggleFocus(): void {
+function onSearchFieldFocus(): void {
   typeFocusIndex.value = TYPE_OPTIONS.length
 }
 
-function onSearchToggleKeyDown(event: KeyboardEvent): void {
+function focusSearchInput(selectText = false): void {
+  void nextTick(() => {
+    toolbarRef.value?.focusSearch(selectText)
+  })
+}
+
+function onSearchKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Tab') {
     event.preventDefault()
     event.stopPropagation()
@@ -291,55 +297,18 @@ function onSearchToggleKeyDown(event: KeyboardEvent): void {
     return
   }
 
-  if (event.key === 'Enter' || event.key === ' ') {
-    event.preventDefault()
-    event.stopPropagation()
-    toggleSearch()
-  }
-}
-
-function focusSearchInput(selectText = false): void {
-  void nextTick(() => {
-    searchInputRef.value?.focus()
-    if (selectText) {
-      searchInputRef.value?.select()
-    }
-  })
-}
-
-function toggleSearch(): void {
-  if (!searchExpanded.value) {
-    searchExpanded.value = true
-    focusSearchInput()
-    return
-  }
-
-  if (search.value.trim()) {
-    focusSearchInput(true)
-    return
-  }
-
-  searchExpanded.value = false
-}
-
-function collapseSearchIfIdle(): void {
-  if (search.value.trim()) return
-  searchExpanded.value = false
-}
-
-function onSearchKeyDown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault()
+    event.stopPropagation()
     if (search.value.trim()) {
       search.value = ''
-    } else {
-      searchExpanded.value = false
     }
     return
   }
 
   if (event.key === 'Enter') {
     event.preventDefault()
+    event.stopPropagation()
     void runSearch()
   }
 }
@@ -796,7 +765,6 @@ function applyPanelSnapshot(snapshot: PanelSnapshot, resetUi = true): void {
   pasteStackState.value = snapshot.pasteStackState
   if (!resetUi) return
   search.value = ''
-  searchExpanded.value = false
   typeChip.value = 'all'
   syncTypeFocus('all')
   activeCardId.value = null
@@ -1262,7 +1230,6 @@ function onWindowKeyDown(e: KeyboardEvent): void {
 
   if (shortcuts?.focusSearch && matchesAccelerator(e, shortcuts.focusSearch)) {
     e.preventDefault()
-    searchExpanded.value = true
     focusSearchInput(true)
     return
   }
@@ -1286,7 +1253,7 @@ function onWindowKeyDown(e: KeyboardEvent): void {
       e.preventDefault()
       // 如果焦点在 header 控件上，先 blur 防止浏览器将焦点元素滚入视图导致 chips 偏移
       const focused = document.activeElement as HTMLElement | null
-      if (focused && chipRailRef.value?.contains(focused)) {
+      if (focused?.closest('.panel-toolbar')) {
         focused.blur()
       }
       moveActiveCard(e.key === 'ArrowLeft' ? -1 : 1)
@@ -1410,171 +1377,127 @@ onBeforeUnmount(() => {
   <PreviewView v-else-if="isPreviewRoute" />
   <StackDockView v-else-if="isStackDockRoute" />
   <div v-else class="app">
-    <header class="app-header">
-      <div class="header-placeholder" aria-hidden="true"></div>
-
-      <div class="header-center" @click.stop>
-        <div ref="chipRailRef" class="header-controls">
-          <div class="chips">
-            <button
-              v-for="(option, index) in TYPE_OPTIONS"
-              :key="option.value"
-              class="chip"
-              :tabindex="typeFocusIndex === index ? 0 : -1"
-              :data-chip-index="index"
-              :class="{
-                active: typeChip === option.value,
-                focused: typeFocusIndex === index
-              }"
-              @click="onChipClick(index)"
-              @focus="onChipFocus(index)"
-              @keydown="onChipKeyDown($event, index)"
-            >
-              {{ option.label }}
-            </button>
+    <PanelToolbar
+      ref="toolbarRef"
+      :type-options="TYPE_OPTIONS"
+      :type-value="typeChip"
+      :focused-index="typeFocusIndex"
+      :search-value="search"
+      :search-busy="searching"
+      :status="toolbarStatus"
+      :filter-active-count="filterActiveCount"
+      :filters-open="filtersOpen"
+      :more-open="moreOpen"
+      @update:type-value="typeChip = $event as TypeChip"
+      @update:search-value="search = $event"
+      @chip-focus="onChipFocus"
+      @chip-keydown="onChipKeyDown"
+      @search-focus="onSearchFieldFocus"
+      @search-keydown="onSearchKeyDown"
+      @toggle-filters="filtersOpen = !filtersOpen"
+      @toggle-more="moreOpen = !moreOpen"
+    >
+      <template #filter-popover>
+        <div v-if="filtersOpen" class="filter-popover" @click.stop>
+          <div class="filter-group">
+            <div class="filter-label">来源应用</div>
+            <select v-model="sourceAppFilter" class="filter-select">
+              <option :value="null">全部应用</option>
+              <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
+                {{ app.source_app_name || app.source_app }} · {{ app.count }}
+              </option>
+            </select>
           </div>
 
-          <div
-            class="search-shell"
-            :class="{ open: searchExpanded, focused: typeFocusIndex === TYPE_OPTIONS.length }"
-          >
-            <button
-              ref="searchToggleRef"
-              class="search-toggle"
-              title="搜索"
-              :tabindex="typeFocusIndex === TYPE_OPTIONS.length ? 0 : -1"
-              @click.stop="toggleSearch()"
-              @focus="onSearchToggleFocus"
-              @keydown="onSearchToggleKeyDown"
-            >
-              <UiIcon name="search" :size="15" :stroke-width="2" />
-            </button>
-            <input
-              v-if="searchExpanded"
-              ref="searchInputRef"
-              v-model="search"
-              type="text"
-              placeholder="搜索剪贴板..."
-              class="search-input compact"
-              @blur="collapseSearchIfIdle()"
-              @keydown="onSearchKeyDown"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div class="header-actions">
-        <div class="action-anchor">
-          <button class="filter-btn" @click.stop="filtersOpen = !filtersOpen">
-            {{ searching ? '搜索中…' : '筛选' }}
-          </button>
-
-          <div v-if="filtersOpen" class="filter-popover" @click.stop>
-            <div class="filter-group">
-              <div class="filter-label">来源应用</div>
-              <select v-model="sourceAppFilter" class="filter-select">
-                <option :value="null">全部应用</option>
-                <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
-                  {{ app.source_app_name || app.source_app }} · {{ app.count }}
-                </option>
-              </select>
+          <div class="filter-group">
+            <div class="filter-label">日期范围</div>
+            <div class="preset-row">
+              <button
+                class="preset"
+                :class="{ active: datePreset === 'all' }"
+                @click="datePreset = 'all'"
+              >
+                不限
+              </button>
+              <button
+                class="preset"
+                :class="{ active: datePreset === 'today' }"
+                @click="datePreset = 'today'"
+              >
+                今天
+              </button>
+              <button
+                class="preset"
+                :class="{ active: datePreset === 'week' }"
+                @click="datePreset = 'week'"
+              >
+                本周
+              </button>
+              <button
+                class="preset"
+                :class="{ active: datePreset === 'custom' }"
+                @click="datePreset = 'custom'"
+              >
+                自定义
+              </button>
             </div>
 
-            <div class="filter-group">
-              <div class="filter-label">日期范围</div>
-              <div class="preset-row">
-                <button
-                  class="preset"
-                  :class="{ active: datePreset === 'all' }"
-                  @click="datePreset = 'all'"
-                >
-                  不限
-                </button>
-                <button
-                  class="preset"
-                  :class="{ active: datePreset === 'today' }"
-                  @click="datePreset = 'today'"
-                >
-                  今天
-                </button>
-                <button
-                  class="preset"
-                  :class="{ active: datePreset === 'week' }"
-                  @click="datePreset = 'week'"
-                >
-                  本周
-                </button>
-                <button
-                  class="preset"
-                  :class="{ active: datePreset === 'custom' }"
-                  @click="datePreset = 'custom'"
-                >
-                  自定义
-                </button>
-              </div>
-
-              <div v-if="datePreset === 'custom'" class="custom-row">
-                <input v-model="customFrom" type="date" class="date-input" />
-                <span class="date-sep">–</span>
-                <input v-model="customTo" type="date" class="date-input" />
-              </div>
+            <div v-if="datePreset === 'custom'" class="custom-row">
+              <input v-model="customFrom" type="date" class="date-input" />
+              <span class="date-sep">–</span>
+              <input v-model="customTo" type="date" class="date-input" />
             </div>
           </div>
         </div>
+      </template>
 
-        <div class="action-anchor">
-          <button class="more-btn" title="更多" @click.stop="moreOpen = !moreOpen">
-            <UiIcon name="more" />
+      <template #more-popover>
+        <div v-if="moreOpen" class="popover" @click.stop>
+          <button class="menu-item" @click="openSettings()">
+            <span class="menu-item-icon"><UiIcon name="settings" /></span>
+            <span class="menu-item-label">打开设置</span>
           </button>
-
-          <div v-if="moreOpen" class="popover" @click.stop>
-            <button class="menu-item" @click="openSettings()">
-              <span class="menu-item-icon"><UiIcon name="settings" /></span>
-              <span class="menu-item-label">打开设置</span>
-            </button>
-            <button class="menu-item" @click="openAbout()">
-              <span class="menu-item-icon"><UiIcon name="info" /></span>
-              <span class="menu-item-label">关于 ClipMate</span>
-            </button>
-            <div class="menu-sep"></div>
-            <button class="menu-item" @click="togglePaused()">
-              <span class="menu-item-icon">
-                <UiIcon :name="paused ? 'play' : 'pause'" />
-              </span>
-              <span class="menu-item-label">{{ paused ? '恢复收集' : '暂停收集' }}</span>
-            </button>
-            <button class="menu-item" @click="togglePasteStackUi()">
-              <span class="menu-item-icon"><UiIcon name="stack" /></span>
-              <span class="menu-item-label">
-                {{ pasteStackState.enabled ? '关闭 Paste Stack' : '启用 Paste Stack' }}
-              </span>
-            </button>
-            <button class="menu-item" @click="clearHistory()">
-              <span class="menu-item-icon"><UiIcon name="trash" /></span>
-              <span class="menu-item-label">清空历史</span>
-            </button>
-          </div>
+          <button class="menu-item" @click="openAbout()">
+            <span class="menu-item-icon"><UiIcon name="info" /></span>
+            <span class="menu-item-label">关于 ClipMate</span>
+          </button>
+          <div class="menu-sep"></div>
+          <button class="menu-item" @click="togglePaused()">
+            <span class="menu-item-icon">
+              <UiIcon :name="paused ? 'play' : 'pause'" />
+            </span>
+            <span class="menu-item-label">{{ paused ? '恢复收集' : '暂停收集' }}</span>
+          </button>
+          <button class="menu-item" @click="togglePasteStackUi()">
+            <span class="menu-item-icon"><UiIcon name="stack" /></span>
+            <span class="menu-item-label">
+              {{ pasteStackState.enabled ? '关闭 Paste Stack' : '启用 Paste Stack' }}
+            </span>
+          </button>
+          <button class="menu-item" @click="clearHistory()">
+            <span class="menu-item-icon"><UiIcon name="trash" /></span>
+            <span class="menu-item-label">清空历史</span>
+          </button>
         </div>
-      </div>
-    </header>
+      </template>
+    </PanelToolbar>
 
     <main class="app-content">
       <div class="layout">
         <section class="main-panel">
-          <div v-if="paused" class="banner">已暂停收集（Pause Paste）</div>
+          <PanelStateView
+            v-if="panelPreparing && !hasItems && !loading"
+            mode="loading"
+            title="正在同步最新剪贴板…"
+            subtitle="内容准备好后会立即显示"
+          />
 
-          <div v-if="panelPreparing && !hasItems && !loading" class="loading-state">
-            <div class="loading-spinner"></div>
-            <div class="loading-title">正在同步最新剪贴板…</div>
-            <div class="loading-sub">内容准备好后会立即显示</div>
-          </div>
-
-          <div v-else-if="!hasItems && !loading" class="empty-state">
-            <p>{{ isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪' }}</p>
-            <p class="empty-hint">
-              {{ isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里' }}
-            </p>
-          </div>
+          <PanelStateView
+            v-else-if="!hasItems && !loading"
+            mode="empty"
+            :title="isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪'"
+            :subtitle="isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里'"
+          />
 
           <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
             <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
@@ -1690,7 +1613,7 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
-          <div v-if="toast" class="toast" @click.stop>{{ toast }}</div>
+          <ToastNotice v-if="toast" :message="toast" />
         </section>
       </div>
     </main>
@@ -1748,284 +1671,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-:root {
-  --bg-primary: rgba(245, 245, 247, 0.92);
-  --bg-surface: rgba(255, 255, 255, 0.85);
-  --bg-card: rgba(255, 255, 255, 0.9);
-  --text-primary: #1d1d1f;
-  --text-secondary: rgba(0, 0, 0, 0.55);
-  --border-color: rgba(0, 0, 0, 0.1);
-  --shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-  --accent-color: #007aff;
-  --accent-fill: rgba(0, 122, 255, 0.1);
-  --accent-fill-strong: rgba(0, 122, 255, 0.16);
-  --accent-border: rgba(0, 122, 255, 0.24);
-  --accent-border-strong: rgba(0, 122, 255, 0.46);
-  --danger-color: #ff3b30;
-  --radius-pill: 999px;
-  --radius-card: 18px;
-  --radius-card-inner: 14px;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --bg-primary: rgba(245, 245, 247, 0.92);
-    --bg-surface: rgba(255, 255, 255, 0.85);
-    --bg-card: rgba(255, 255, 255, 0.9);
-    --text-primary: #1d1d1f;
-    --text-secondary: rgba(0, 0, 0, 0.55);
-    --border-color: rgba(0, 0, 0, 0.1);
-    --shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg-primary: rgba(20, 20, 22, 0.92);
-    --bg-surface: rgba(40, 40, 43, 0.75);
-    --bg-card: rgba(34, 34, 37, 0.92);
-    --text-primary: rgba(255, 255, 255, 0.92);
-    --text-secondary: rgba(255, 255, 255, 0.6);
-    --border-color: rgba(255, 255, 255, 0.12);
-    --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-  }
-}
-
-:root[data-theme='light'] {
-  --bg-primary: rgba(245, 245, 247, 0.92);
-  --bg-surface: rgba(255, 255, 255, 0.85);
-  --bg-card: rgba(255, 255, 255, 0.9);
-  --text-primary: #1d1d1f;
-  --text-secondary: rgba(0, 0, 0, 0.55);
-  --border-color: rgba(0, 0, 0, 0.1);
-  --shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
-}
-
-:root[data-theme='dark'] {
-  --bg-primary: rgba(20, 20, 22, 0.92);
-  --bg-surface: rgba(40, 40, 43, 0.75);
-  --bg-card: rgba(34, 34, 37, 0.92);
-  --text-primary: rgba(255, 255, 255, 0.92);
-  --text-secondary: rgba(255, 255, 255, 0.6);
-  --border-color: rgba(255, 255, 255, 0.12);
-  --shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
-}
-
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  overflow: hidden;
-  user-select: none;
-  -webkit-app-region: no-drag;
-}
-
 .app {
   display: flex;
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-}
-
-.app-header {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-  padding: 11px 18px 9px;
-  border-bottom: 1px solid var(--border-color);
-  -webkit-app-region: no-drag;
-  position: relative;
-}
-
-.header-placeholder {
-  min-width: 0;
-}
-
-.header-center {
-  justify-self: center;
-  max-width: min(72vw, 900px);
-  min-width: 0;
-  overflow: visible;
-}
-
-.header-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  padding: 2px 0;
-  overflow: visible;
-}
-
-.header-actions {
-  justify-self: end;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.action-anchor {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.chips {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  overflow-x: auto;
-  max-width: min(58vw, 720px);
-  padding: 2px;
-  margin: -2px;
-  scroll-behavior: smooth;
-  scrollbar-width: none;
-}
-
-.chips::-webkit-scrollbar {
-  display: none;
-}
-
-.chip {
-  position: relative;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  padding: 6px 12px;
-  border-radius: var(--radius-pill);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease,
-    box-shadow 0.16s ease,
-    transform 0.16s ease;
-}
-
-.chip:hover {
-  background: color-mix(in srgb, var(--bg-card) 92%, white 8%);
-  border-color: color-mix(in srgb, var(--border-color) 82%, var(--accent-border));
-  color: var(--text-primary);
-}
-
-.chip.active {
-  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill-strong));
-  border-color: var(--accent-border);
-  color: var(--text-primary);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.1);
-}
-
-.chip.focused {
-  background: color-mix(in srgb, var(--bg-card) 84%, var(--accent-fill));
-  border-color: var(--accent-border-strong);
-  color: var(--text-primary);
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
-}
-
-.chip.active.focused {
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.24);
-}
-
-.search-shell {
-  display: flex;
-  align-items: center;
-  width: 36px;
-  flex: 0 0 auto;
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-pill);
-  background: var(--bg-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
-  transition:
-    width 0.2s ease,
-    border-color 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease;
-}
-
-.search-shell.open {
-  width: 224px;
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--bg-card) 90%, var(--accent-fill));
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.1);
-}
-
-.search-shell.focused {
-  border-color: var(--accent-border-strong);
-  background: color-mix(in srgb, var(--bg-card) 86%, var(--accent-fill));
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.18);
-}
-
-.search-shell.open.focused {
-  box-shadow: inset 0 0 0 1px rgba(0, 122, 255, 0.24);
-}
-
-.search-toggle {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.search-toggle:hover {
-  color: var(--text-primary);
-}
-
-.search-toggle svg {
-  width: 15px;
-  height: 15px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 0 12px 0 2px;
-  border: none;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 13px;
-  outline: none;
-}
-
-.search-input.compact {
-  height: 34px;
-}
-
-.search-input::placeholder {
-  color: var(--text-secondary);
-}
-
-.more-btn {
-  -webkit-app-region: no-drag;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 7px;
-  border-radius: 10px;
-}
-
-.more-btn:hover {
-  background: var(--bg-card);
 }
 
 .popover {
@@ -2051,17 +1701,6 @@ body {
   position: relative;
 }
 
-.banner {
-  align-self: flex-start;
-  margin-bottom: 10px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  color: var(--text-primary);
-  background: rgba(255, 149, 0, 0.2);
-  border: 1px solid rgba(255, 149, 0, 0.35);
-}
-
 .layout {
   flex: 1;
   min-height: 0;
@@ -2079,21 +1718,6 @@ body {
   overflow: hidden;
   min-height: 0;
   position: relative;
-}
-
-.filter-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  padding: 5px 10px;
-  border-radius: 10px;
-  font-size: 12px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.filter-btn:hover {
-  background: var(--bg-card);
 }
 
 .filter-popover {
@@ -2181,58 +1805,6 @@ body {
 .date-sep {
   color: var(--text-secondary);
   font-size: 12px;
-}
-
-.empty-state {
-  text-align: center;
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.empty-state p {
-  font-size: 15px;
-  color: var(--text-secondary);
-}
-
-.empty-hint {
-  margin-top: 4px;
-  font-size: 12px !important;
-}
-
-.loading-state {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  text-align: center;
-}
-
-.loading-spinner {
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  border: 2px solid var(--border-color);
-  border-top-color: var(--accent-color);
-  animation: spin 0.8s linear infinite;
-}
-
-.loading-title {
-  font-size: 15px;
-  color: var(--text-primary);
-}
-
-.loading-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 
 .cards-viewport {
@@ -2412,22 +1984,6 @@ body {
   color: var(--text-primary);
   border-color: var(--accent-border);
   background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill));
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  font-size: 11px;
-  color: var(--text-secondary);
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    color 0.18s ease;
 }
 
 .card-title {
@@ -2667,432 +2223,5 @@ body {
   height: 1px;
   background: var(--border-color);
   margin: 6px 6px;
-}
-
-.toast {
-  position: absolute;
-  left: 12px;
-  bottom: 64px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  box-shadow: var(--shadow);
-  font-size: 13px;
-  color: var(--text-primary);
-  z-index: 20;
-  max-width: 520px;
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.preview-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.38);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 200;
-  -webkit-app-region: no-drag;
-}
-
-.preview-window {
-  width: min(980px, calc(100vw - 24px));
-  height: min(640px, calc(100vh - 24px));
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.create-window {
-  width: min(680px, calc(100vw - 24px));
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 18px;
-  box-shadow: var(--shadow);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.preview-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-surface);
-}
-
-.preview-left {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.preview-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.preview-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.icon-btn {
-  width: 34px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  border-radius: 12px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  cursor: pointer;
-  color: var(--text-primary);
-  padding: 0;
-}
-
-.icon-btn:hover {
-  background: var(--bg-surface);
-}
-
-.icon-btn.active {
-  border-color: rgba(0, 122, 255, 0.5);
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.16);
-}
-
-.icon-btn.danger {
-  color: var(--danger-color);
-}
-
-.preview-body {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
-  padding: 14px;
-}
-
-.preview-body.preview-body-editing {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  overflow: hidden;
-}
-
-.preview-loading {
-  color: var(--text-secondary);
-  font-size: 13px;
-  padding: 10px;
-}
-
-.create-body {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 16px 14px;
-}
-
-.create-switch {
-  display: flex;
-  gap: 8px;
-}
-
-.rename-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.preview-body.preview-body-editing .rename-row {
-  flex: 0 0 auto;
-  margin-bottom: 0;
-}
-
-.rename-input {
-  flex: 1;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 13px;
-  outline: none;
-}
-
-.primary-btn {
-  border: 1px solid rgba(0, 122, 255, 0.35);
-  background: rgba(0, 122, 255, 0.18);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 10px 12px;
-  cursor: pointer;
-  font-size: 13px;
-  white-space: nowrap;
-}
-
-.primary-btn.compact {
-  padding: 6px 10px;
-  font-size: 12px;
-}
-
-.primary-btn:hover {
-  background: rgba(0, 122, 255, 0.24);
-}
-
-.preview-text {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--text-primary);
-  white-space: pre-wrap;
-}
-
-.edit-area {
-  width: 100%;
-  min-height: 260px;
-  resize: none;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: 14px;
-  padding: 12px;
-  font-size: 13px;
-  line-height: 1.5;
-  outline: none;
-  overflow: auto;
-}
-
-.preview-body.preview-body-editing .edit-area {
-  flex: 1;
-  min-height: 0;
-  height: 100%;
-}
-
-.link-meta-card {
-  display: flex;
-  gap: 12px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  margin-bottom: 12px;
-}
-
-.link-thumb {
-  width: 84px;
-  height: 84px;
-  border-radius: 12px;
-  object-fit: cover;
-  border: 1px solid var(--border-color);
-}
-
-.link-meta-text {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.link-title {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.link-desc {
-  font-size: 12px;
-  color: var(--text-secondary);
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-}
-
-.webview {
-  width: 100%;
-  height: 320px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  overflow: hidden;
-}
-
-.image-preview-lg {
-  width: 100%;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  overflow: hidden;
-  background: var(--bg-surface);
-}
-
-.image-preview-lg img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
-
-.image-tools {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.tool-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 10px 12px;
-  cursor: pointer;
-  font-size: 13px;
-}
-
-.tool-btn:hover {
-  background: var(--bg-card);
-}
-
-.tool-btn.small {
-  padding: 7px 10px;
-  font-size: 12px;
-}
-
-.tool-btn:disabled,
-.primary-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.ocr-card {
-  margin-top: 14px;
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  background: var(--bg-surface);
-  padding: 12px;
-}
-
-.ocr-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.ocr-text {
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-primary);
-}
-
-.ocr-empty {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.ocr-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 12px;
-  flex-wrap: wrap;
-}
-
-.color-preview-lg {
-  height: 180px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-  padding: 12px;
-}
-
-.color-value {
-  font-weight: 700;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-.color-tools {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-}
-
-.color-input {
-  width: 44px;
-  height: 34px;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  background: var(--bg-surface);
-}
-
-.file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.file-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  font-size: 12px;
-  color: var(--text-primary);
-}
-
-.file-row span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.preview-footer {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-surface);
-}
-
-.hint {
-  font-size: 12px;
-  color: var(--text-secondary);
 }
 </style>

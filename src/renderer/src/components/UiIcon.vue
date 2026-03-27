@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
+  IconAdjustmentsHorizontal,
   IconClipboard,
   IconCopy,
   IconDeviceFloppy,
@@ -23,6 +24,7 @@ const ICON_COMPONENTS = {
   close: IconX,
   copy: IconCopy,
   edit: IconPencil,
+  filter: IconAdjustmentsHorizontal,
   info: IconInfoCircle,
   link: IconLink,
   more: IconDots,
