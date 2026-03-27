@@ -1,0 +1,9 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg t="1774519780216" class="icon" viewBox="0 0 1024 1024" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="500" height="500">
+  <!-- P letter -->
+  <path d="M192 371.2C192 201.536 335.296 64 512 64s320 137.536 320 307.2c0 169.6-143.296 307.2-320 307.2l-149.376-0.064v191.104L192 960V371.2z m320-143.36c-75.904 0-138.56 54.336-148.096 124.672l-0.896 9.28-0.32 9.408v143.36H512c82.496 0 149.312-64.192 149.312-143.36 0-79.168-66.816-143.36-149.312-143.36z" fill="#353A41"></path>
+  <!-- Pause bars at bottom-right -->
+  <rect x="530" y="700" width="170" height="280" rx="16" ry="16" fill="#353A41"/>
+  <rect x="760" y="700" width="170" height="280" rx="16" ry="16" fill="#353A41"/>
+</svg>
