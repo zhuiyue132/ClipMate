@@ -29,6 +29,34 @@
   --shadow-soft: 0 12px 30px rgba(0, 0, 0, 0.12);
   --shadow-float: 0 16px 40px rgba(0, 0, 0, 0.16);
   --shadow: var(--shadow-soft);
+  --overlay-surface: rgba(255, 255, 255, 0.92);
+  --overlay-surface-strong: rgba(255, 255, 255, 0.98);
+  --overlay-border-color: rgba(0, 0, 0, 0.08);
+  --card-surface-top: rgba(255, 255, 255, 0.96);
+  --card-surface-bottom: rgba(255, 255, 255, 0.9);
+  --card-border-default: rgba(0, 0, 0, 0.09);
+  --card-border-hover: rgba(0, 0, 0, 0.14);
+  --card-border-selected: rgba(0, 122, 255, 0.28);
+  --card-border-active: rgba(0, 122, 255, 0.38);
+  --card-gloss-top: rgba(255, 255, 255, 0.24);
+  --card-shadow-rest:
+    0 12px 24px rgba(15, 23, 42, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  --card-shadow-hover:
+    0 16px 28px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --card-shadow-selected:
+    0 0 0 1px rgba(0, 122, 255, 0.14),
+    0 14px 28px rgba(15, 23, 42, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  --card-shadow-active:
+    0 0 0 2px rgba(0, 122, 255, 0.2),
+    0 18px 34px rgba(15, 23, 42, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --card-shadow-active-selected:
+    0 0 0 2px rgba(0, 122, 255, 0.24),
+    0 20px 38px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
   --radius-sm: 10px;
   --radius-md: 14px;
   --radius-lg: 18px;
@@ -68,6 +96,34 @@
     --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.55);
     --shadow-float: 0 22px 56px rgba(0, 0, 0, 0.58);
     --shadow: var(--shadow-soft);
+    --overlay-surface: rgba(34, 34, 37, 0.96);
+    --overlay-surface-strong: rgba(39, 40, 43, 0.98);
+    --overlay-border-color: rgba(255, 255, 255, 0.11);
+    --card-surface-top: rgba(40, 40, 43, 0.96);
+    --card-surface-bottom: rgba(32, 32, 35, 0.94);
+    --card-border-default: rgba(255, 255, 255, 0.12);
+    --card-border-hover: rgba(255, 255, 255, 0.18);
+    --card-border-selected: rgba(10, 132, 255, 0.32);
+    --card-border-active: rgba(10, 132, 255, 0.44);
+    --card-gloss-top: rgba(255, 255, 255, 0.08);
+    --card-shadow-rest:
+      0 16px 36px rgba(0, 0, 0, 0.34),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --card-shadow-hover:
+      0 18px 40px rgba(0, 0, 0, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --card-shadow-selected:
+      0 0 0 1px rgba(10, 132, 255, 0.18),
+      0 20px 42px rgba(0, 0, 0, 0.4),
+      inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    --card-shadow-active:
+      0 0 0 2px rgba(10, 132, 255, 0.24),
+      0 22px 46px rgba(0, 0, 0, 0.44),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    --card-shadow-active-selected:
+      0 0 0 2px rgba(10, 132, 255, 0.28),
+      0 24px 50px rgba(0, 0, 0, 0.46),
+      inset 0 1px 0 rgba(255, 255, 255, 0.1);
   }
 }
 
@@ -115,4 +171,32 @@
   --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.55);
   --shadow-float: 0 22px 56px rgba(0, 0, 0, 0.58);
   --shadow: var(--shadow-soft);
+  --overlay-surface: rgba(34, 34, 37, 0.96);
+  --overlay-surface-strong: rgba(39, 40, 43, 0.98);
+  --overlay-border-color: rgba(255, 255, 255, 0.11);
+  --card-surface-top: rgba(40, 40, 43, 0.96);
+  --card-surface-bottom: rgba(32, 32, 35, 0.94);
+  --card-border-default: rgba(255, 255, 255, 0.12);
+  --card-border-hover: rgba(255, 255, 255, 0.18);
+  --card-border-selected: rgba(10, 132, 255, 0.32);
+  --card-border-active: rgba(10, 132, 255, 0.44);
+  --card-gloss-top: rgba(255, 255, 255, 0.08);
+  --card-shadow-rest:
+    0 16px 36px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  --card-shadow-hover:
+    0 18px 40px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --card-shadow-selected:
+    0 0 0 1px rgba(10, 132, 255, 0.18),
+    0 20px 42px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --card-shadow-active:
+    0 0 0 2px rgba(10, 132, 255, 0.24),
+    0 22px 46px rgba(0, 0, 0, 0.44),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  --card-shadow-active-selected:
+    0 0 0 2px rgba(10, 132, 255, 0.28),
+    0 24px 50px rgba(0, 0, 0, 0.46),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
 }

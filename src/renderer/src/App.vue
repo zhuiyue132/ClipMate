@@ -3,7 +3,11 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PreviewView from './PreviewView.vue'
 import SettingsView from './SettingsView.vue'
 import StackDockView from './StackDockView.vue'
-import UiIcon from './components/UiIcon.vue'
+import ClipCard from './components/panel/ClipCard.vue'
+import ClipContextMenu from './components/panel/ClipContextMenu.vue'
+import ClipCreateDialog from './components/panel/ClipCreateDialog.vue'
+import PanelFilterPopover from './components/panel/PanelFilterPopover.vue'
+import PanelMoreMenu from './components/panel/PanelMoreMenu.vue'
 import PanelStateView from './components/panel/PanelStateView.vue'
 import PanelToolbar from './components/panel/PanelToolbar.vue'
 import ToastNotice from './components/panel/ToastNotice.vue'
@@ -228,6 +232,25 @@ const virtualEndIndex = computed(() => {
 
 const virtualItems = computed(() =>
   visibleItems.value.slice(virtualStartIndex.value, virtualEndIndex.value)
+)
+
+const virtualCardEntries = computed(() =>
+  virtualItems.value.map((item) => ({
+    item,
+    typeLabel: typeLabel(item.type),
+    titleHtml: clipItemTitle(item) ? highlight(clipItemTitle(item)) : '',
+    previewHtml: cardPreviewHtml(item),
+    matchLines: cardSearchContextLines(item),
+    appIconSrc: appIconSrc(item),
+    appIconAlt: item.source_app_name || '应用图标',
+    appInitial: appIconInitial(item),
+    appName: item.source_app_name || '未知来源',
+    timeLabel: formatRelativeTime(item.created_at),
+    canEdit: canOpenPreviewEdit(item),
+    active: activeCardId.value === item.id,
+    selected: selectedSet.value.has(item.id),
+    draggable: item.type === 'image'
+  }))
 )
 
 const virtualTrackWidth = computed(() =>
@@ -638,12 +661,6 @@ function highlight(text: string): string {
   }
   return out
 }
-
-function imageSrc(item: HistoryCardItem): string | null {
-  if (item.type !== 'image') return null
-  return item.image_preview
-}
-
 function canOpenPreviewEdit(item: HistoryCardItem): boolean {
   return item.type === 'text' || item.type === 'richtext' || item.type === 'link'
 }
@@ -1398,87 +1415,31 @@ onBeforeUnmount(() => {
       @toggle-more="moreOpen = !moreOpen"
     >
       <template #filter-popover>
-        <div v-if="filtersOpen" class="filter-popover" @click.stop>
-          <div class="filter-group">
-            <div class="filter-label">来源应用</div>
-            <select v-model="sourceAppFilter" class="filter-select">
-              <option :value="null">全部应用</option>
-              <option v-for="app in sourceApps" :key="app.source_app" :value="app.source_app">
-                {{ app.source_app_name || app.source_app }} · {{ app.count }}
-              </option>
-            </select>
-          </div>
-
-          <div class="filter-group">
-            <div class="filter-label">日期范围</div>
-            <div class="preset-row">
-              <button
-                class="preset"
-                :class="{ active: datePreset === 'all' }"
-                @click="datePreset = 'all'"
-              >
-                不限
-              </button>
-              <button
-                class="preset"
-                :class="{ active: datePreset === 'today' }"
-                @click="datePreset = 'today'"
-              >
-                今天
-              </button>
-              <button
-                class="preset"
-                :class="{ active: datePreset === 'week' }"
-                @click="datePreset = 'week'"
-              >
-                本周
-              </button>
-              <button
-                class="preset"
-                :class="{ active: datePreset === 'custom' }"
-                @click="datePreset = 'custom'"
-              >
-                自定义
-              </button>
-            </div>
-
-            <div v-if="datePreset === 'custom'" class="custom-row">
-              <input v-model="customFrom" type="date" class="date-input" />
-              <span class="date-sep">–</span>
-              <input v-model="customTo" type="date" class="date-input" />
-            </div>
-          </div>
-        </div>
+        <PanelFilterPopover
+          v-if="filtersOpen"
+          :source-apps="sourceApps"
+          :source-app-filter="sourceAppFilter"
+          :date-preset="datePreset"
+          :custom-from="customFrom"
+          :custom-to="customTo"
+          @update:source-app-filter="sourceAppFilter = $event"
+          @update:date-preset="datePreset = $event"
+          @update:custom-from="customFrom = $event"
+          @update:custom-to="customTo = $event"
+        />
       </template>
 
       <template #more-popover>
-        <div v-if="moreOpen" class="popover" @click.stop>
-          <button class="menu-item" @click="openSettings()">
-            <span class="menu-item-icon"><UiIcon name="settings" /></span>
-            <span class="menu-item-label">打开设置</span>
-          </button>
-          <button class="menu-item" @click="openAbout()">
-            <span class="menu-item-icon"><UiIcon name="info" /></span>
-            <span class="menu-item-label">关于 ClipMate</span>
-          </button>
-          <div class="menu-sep"></div>
-          <button class="menu-item" @click="togglePaused()">
-            <span class="menu-item-icon">
-              <UiIcon :name="paused ? 'play' : 'pause'" />
-            </span>
-            <span class="menu-item-label">{{ paused ? '恢复收集' : '暂停收集' }}</span>
-          </button>
-          <button class="menu-item" @click="togglePasteStackUi()">
-            <span class="menu-item-icon"><UiIcon name="stack" /></span>
-            <span class="menu-item-label">
-              {{ pasteStackState.enabled ? '关闭 Paste Stack' : '启用 Paste Stack' }}
-            </span>
-          </button>
-          <button class="menu-item" @click="clearHistory()">
-            <span class="menu-item-icon"><UiIcon name="trash" /></span>
-            <span class="menu-item-label">清空历史</span>
-          </button>
-        </div>
+        <PanelMoreMenu
+          v-if="moreOpen"
+          :paused="paused"
+          :paste-stack-enabled="pasteStackState.enabled"
+          @settings="openSettings()"
+          @about="openAbout()"
+          @toggle-paused="togglePaused()"
+          @toggle-paste-stack="togglePasteStackUi()"
+          @clear-history="clearHistory()"
+        />
       </template>
     </PanelToolbar>
 
@@ -1501,172 +1462,69 @@ onBeforeUnmount(() => {
 
           <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
             <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
-              <div
-                v-for="(item, index) in virtualItems"
-                :key="item.id"
-                :ref="(el) => setCardRef(item.id, el)"
-                class="card"
-                :data-card-id="item.id"
-                :draggable="item.type === 'image'"
+              <ClipCard
+                v-for="(entry, index) in virtualCardEntries"
+                :key="entry.item.id"
+                :ref="(el) => setCardRef(entry.item.id, el)"
+                :data-card-id="entry.item.id"
+                :item="entry.item"
+                :type-label="entry.typeLabel"
+                :title-html="entry.titleHtml"
+                :preview-html="entry.previewHtml"
+                :match-lines="entry.matchLines"
+                :search-mode="hasRemoteSearchQuery"
+                :app-icon-src="entry.appIconSrc"
+                :app-icon-alt="entry.appIconAlt"
+                :app-initial="entry.appInitial"
+                :app-name="entry.appName"
+                :time-label="entry.timeLabel"
+                :can-edit="entry.canEdit"
+                :active="entry.active"
+                :selected="entry.selected"
+                :draggable="entry.draggable"
                 :style="{
                   transform: `translateX(${(virtualStartIndex + index) * CARD_STRIDE}px)`
                 }"
-                :class="{
-                  active: activeCardId === item.id,
-                  selected: selectedSet.has(item.id)
-                }"
-                @mouseenter="onItemMouseEnter(item)"
-                @mouseleave="onItemMouseLeave(item)"
-                @click="onItemClick($event, item)"
-                @dblclick="onItemDoubleClick($event, item)"
-                @dragstart="onItemDragStart($event, item)"
-                @contextmenu="openClipContextMenu($event, item)"
-              >
-                <div class="card-top">
-                  <div class="card-heading">
-                    <div class="badge">{{ typeLabel(item.type) }}</div>
-                    <div v-if="clipItemTitle(item)" class="card-title">
-                      <!-- eslint-disable-next-line vue/no-v-html -->
-                      <span v-html="highlight(clipItemTitle(item))"></span>
-                    </div>
-                  </div>
-                  <div v-if="canOpenPreviewEdit(item)" class="card-tools">
-                    <button class="card-tool-btn" @click.stop="openEditPreviewById(item.id)">
-                      <UiIcon name="edit" :size="13" :stroke-width="2" />
-                      <span>编辑</span>
-                    </button>
-                  </div>
-                </div>
-
-                <div class="card-body">
-                  <template v-if="item.type === 'image'">
-                    <div class="image-box">
-                      <img v-if="imageSrc(item)" :src="imageSrc(item)!" alt="" />
-                    </div>
-                  </template>
-                  <template v-else-if="item.type === 'color'">
-                    <div
-                      class="color-box"
-                      :style="{ background: item.content_preview || '#000000' }"
-                    >
-                      <span class="color-text">{{ item.content_preview }}</span>
-                    </div>
-                  </template>
-                  <template v-else>
-                    <!-- eslint-disable-next-line vue/no-v-html -->
-                    <div class="text-preview" v-html="cardPreviewHtml(item)"></div>
-                    <div v-if="cardSearchContextLines(item).length > 0" class="match-lines">
-                      <div
-                        v-for="line in cardSearchContextLines(item)"
-                        :key="line.key"
-                        class="match-line"
-                      >
-                        <span class="match-label">{{ line.label }}</span>
-                        <!-- eslint-disable-next-line vue/no-v-html -->
-                        <span class="match-value" v-html="line.html"></span>
-                      </div>
-                    </div>
-                  </template>
-                </div>
-
-                <div class="card-footer">
-                  <div class="app-pill">
-                    <img
-                      v-if="appIconSrc(item)"
-                      class="app-icon"
-                      :src="appIconSrc(item)!"
-                      :alt="item.source_app_name || '应用图标'"
-                      @error="markAppIconFailed(item)"
-                    />
-                    <span v-else class="app-dot">{{ appIconInitial(item) }}</span>
-                    <div class="app-meta">
-                      <div class="app-name">{{ item.source_app_name || '未知来源' }}</div>
-                      <div class="time">{{ formatRelativeTime(item.created_at) }}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                @mouseenter="onItemMouseEnter(entry.item)"
+                @mouseleave="onItemMouseLeave(entry.item)"
+                @click="onItemClick($event, entry.item)"
+                @dblclick="onItemDoubleClick($event, entry.item)"
+                @dragstart="onItemDragStart($event, entry.item)"
+                @contextmenu="openClipContextMenu($event, entry.item)"
+                @edit="openEditPreviewById(entry.item.id)"
+                @icon-error="markAppIconFailed(entry.item)"
+              />
             </div>
           </div>
 
-          <div
+          <ClipContextMenu
             v-if="ctxOpen"
-            class="ctx-menu"
-            :style="{ left: `${ctxX}px`, top: `${ctxY}px` }"
-            @click.stop
-          >
-            <button class="menu-item" @click="previewFromContext()">
-              <span class="menu-item-icon"><UiIcon name="preview" /></span>
-              <span class="menu-item-label">预览</span>
-            </button>
-            <button
-              v-if="ctxItem && canOpenPreviewEdit(ctxItem)"
-              class="menu-item"
-              @click="editFromContext()"
-            >
-              <span class="menu-item-icon"><UiIcon name="edit" /></span>
-              <span class="menu-item-label">编辑</span>
-            </button>
-            <button class="menu-item danger" @click="runClipAction('delete')">
-              <span class="menu-item-icon"><UiIcon name="trash" /></span>
-              <span class="menu-item-label">删除</span>
-            </button>
-          </div>
+            :x="ctxX"
+            :y="ctxY"
+            :can-edit="Boolean(ctxItem && canOpenPreviewEdit(ctxItem))"
+            @preview="previewFromContext()"
+            @edit="editFromContext()"
+            @delete="runClipAction('delete')"
+          />
 
           <ToastNotice v-if="toast" :message="toast" />
         </section>
       </div>
     </main>
 
-    <div v-if="createOpen" class="preview-overlay" @click.self="closeCreateDialog()">
-      <div class="create-window" @click.stop>
-        <div class="preview-header">
-          <div class="preview-left">
-            <div class="badge">新建条目</div>
-            <div class="preview-sub">无需先复制，可直接保存到历史记录</div>
-          </div>
-          <div class="preview-actions">
-            <button class="icon-btn" title="关闭" @click="closeCreateDialog()">
-              <UiIcon name="close" :size="18" :stroke-width="2" />
-            </button>
-          </div>
-        </div>
-
-        <div class="create-body">
-          <div class="create-switch">
-            <button
-              class="preset"
-              :class="{ active: createType === 'text' }"
-              @click="createType = 'text'"
-            >
-              文本
-            </button>
-            <button
-              class="preset"
-              :class="{ active: createType === 'link' }"
-              @click="createType = 'link'"
-            >
-              链接
-            </button>
-          </div>
-
-          <input v-model="createTitle" class="rename-input" placeholder="名称（可选）" />
-          <textarea
-            v-model="createContent"
-            class="edit-area"
-            :placeholder="createType === 'link' ? 'https://example.com' : '输入文本内容...'"
-          ></textarea>
-        </div>
-
-        <div class="preview-footer">
-          <span class="hint">
-            {{ appSettings?.shortcuts.newTextItem || '⌘N' }} 文本 ·
-            {{ appSettings?.shortcuts.newLinkItem || '⌘⇧N' }} 链接
-          </span>
-          <button class="primary-btn" @click="saveCreatedItem()">保存条目</button>
-        </div>
-      </div>
-    </div>
+    <ClipCreateDialog
+      :open="createOpen"
+      :create-type="createType"
+      :title-value="createTitle"
+      :content-value="createContent"
+      :new-text-shortcut="appSettings?.shortcuts.newTextItem"
+      :new-link-shortcut="appSettings?.shortcuts.newLinkItem"
+      @close="closeCreateDialog()"
+      @save="saveCreatedItem()"
+      @update:create-type="createType = $event"
+      @update:title-value="createTitle = $event"
+      @update:content-value="createContent = $event"
+    />
   </div>
 </template>
 
@@ -1676,20 +1534,6 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
-}
-
-.popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 10px);
-  width: 240px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  padding: 8px;
-  z-index: 30;
-  -webkit-app-region: no-drag;
 }
 
 .app-content {
@@ -1720,93 +1564,6 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.filter-popover {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 10px);
-  width: 320px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
-  padding: 10px;
-  z-index: 40;
-}
-
-.filter-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px;
-  border-radius: 12px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-color);
-}
-
-.filter-group + .filter-group {
-  margin-top: 10px;
-}
-
-.filter-label {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.filter-select {
-  width: 100%;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 13px;
-  outline: none;
-}
-
-.preset-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.preset {
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.preset.active {
-  background: rgba(0, 122, 255, 0.18);
-  border-color: rgba(0, 122, 255, 0.28);
-  color: var(--text-primary);
-}
-
-.custom-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.date-input {
-  flex: 1;
-  border: 1px solid var(--border-color);
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border-radius: 10px;
-  padding: 6px 8px;
-  font-size: 12px;
-  outline: none;
-}
-
-.date-sep {
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
 .cards-viewport {
   flex: 1;
   min-height: 0;
@@ -1827,401 +1584,5 @@ onBeforeUnmount(() => {
   position: relative;
   min-height: 232px;
   padding: 0 2px 2px;
-}
-
-.card {
-  position: absolute;
-  isolation: isolate;
-  top: 0;
-  width: 224px;
-  min-width: 224px;
-  height: 232px;
-  min-height: 232px;
-  max-height: 232px;
-  overflow: hidden;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--bg-card) 96%, rgba(255, 255, 255, 0.26)) 0%,
-    var(--bg-card) 100%
-  );
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-card);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease,
-    box-shadow 0.18s ease,
-    transform 0.18s ease;
-}
-
-.card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), transparent 32%);
-  pointer-events: none;
-  transition: opacity 0.18s ease;
-}
-
-.card::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  opacity: 0;
-  box-shadow: inset 0 0 0 0 transparent;
-  pointer-events: none;
-  transition:
-    opacity 0.18s ease,
-    box-shadow 0.18s ease;
-}
-
-.card:hover {
-  border-color: color-mix(in srgb, var(--border-color) 90%, rgba(255, 255, 255, 0.2));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
-}
-
-.card:hover::before {
-  opacity: 0.55;
-}
-
-.card.active {
-  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill-strong));
-  border-color: rgba(0, 122, 255, 0.34);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 0 2px rgba(0, 122, 255, 0.24);
-}
-
-.card.active::before {
-  opacity: 0.72;
-}
-
-.card.active::after {
-  opacity: 0;
-  box-shadow: none;
-}
-
-.card.selected {
-  background: color-mix(in srgb, var(--bg-card) 92%, var(--accent-fill));
-  border-color: rgba(0, 122, 255, 0.24);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.24),
-    0 0 0 2px rgba(0, 122, 255, 0.14);
-}
-
-.card.selected::before {
-  opacity: 0.58;
-}
-
-.card.selected::after {
-  opacity: 0;
-  box-shadow: none;
-}
-
-.card.active.selected {
-  background: color-mix(in srgb, var(--bg-card) 86%, var(--accent-fill-strong));
-  border-color: rgba(0, 122, 255, 0.4);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.28),
-    0 0 0 2px rgba(0, 122, 255, 0.3);
-}
-
-.card.active.selected::before {
-  opacity: 0.8;
-}
-
-.card.active.selected::after {
-  opacity: 0;
-  box-shadow: none;
-}
-
-.card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 7px;
-  min-width: 0;
-}
-
-.card-heading {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  width: 100%;
-}
-
-.card-tools {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.card-tool-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-secondary);
-  border-radius: 999px;
-  padding: 4px 7px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.card-tool-btn:hover,
-.card-tool-btn.active {
-  color: var(--text-primary);
-  border-color: var(--accent-border);
-  background: color-mix(in srgb, var(--bg-card) 88%, var(--accent-fill));
-}
-
-.card-title {
-  min-width: 0;
-  flex: 1;
-  font-size: 13px;
-  line-height: 1.2;
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 7px;
-  overflow: hidden;
-}
-
-.text-preview {
-  font-size: 13px;
-  line-height: 1.35;
-  color: var(--text-primary);
-  white-space: pre-wrap;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 6;
-  -webkit-box-orient: vertical;
-  width: 100%;
-}
-
-.text-preview mark {
-  background: rgba(0, 122, 255, 0.22);
-  color: inherit;
-  padding: 0 2px;
-  border-radius: 4px;
-}
-
-.match-lines {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.match-line {
-  display: flex;
-  gap: 5px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--text-secondary);
-}
-
-.match-label {
-  flex: 0 0 auto;
-  padding: 2px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-}
-
-.match-value {
-  min-width: 0;
-  flex: 1;
-}
-
-.match-value mark {
-  background: rgba(0, 122, 255, 0.18);
-  color: inherit;
-  padding: 0 2px;
-  border-radius: 4px;
-}
-
-.image-box {
-  width: 100%;
-  height: 116px;
-  border-radius: var(--radius-card-inner);
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-
-.image-box img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.color-box {
-  width: 100%;
-  height: 116px;
-  border-radius: var(--radius-card-inner);
-  border: 1px solid var(--border-color);
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-start;
-  padding: 7px;
-  overflow: hidden;
-}
-
-.color-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-}
-
-.card-footer {
-  display: flex;
-  justify-content: flex-start;
-  min-height: 34px;
-}
-
-.app-pill {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-}
-
-.app-dot {
-  width: 30px;
-  height: 30px;
-  border-radius: calc(var(--radius-card-inner) - 4px);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 122, 255, 0.18);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  font-weight: 700;
-  transition:
-    background 0.18s ease,
-    border-color 0.18s ease;
-}
-
-.card.active .badge,
-.card.selected .badge {
-  background: color-mix(in srgb, var(--bg-surface) 84%, var(--accent-fill));
-  border-color: color-mix(in srgb, var(--border-color) 72%, var(--accent-border));
-  color: var(--text-primary);
-}
-
-.card.active .app-dot,
-.card.selected .app-dot {
-  background: color-mix(in srgb, var(--bg-surface) 78%, var(--accent-fill-strong));
-  border-color: color-mix(in srgb, var(--border-color) 70%, var(--accent-border));
-}
-
-.app-icon {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.app-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-width: 0;
-}
-
-.app-name {
-  font-size: 12px;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.time {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.ctx-menu {
-  position: fixed;
-  min-width: 220px;
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: 12px;
-  box-shadow: var(--shadow);
-  padding: 8px;
-  z-index: 50;
-  transform: translateY(4px);
-}
-
-.menu-item {
-  width: 100%;
-  text-align: left;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: transparent;
-  border: none;
-  border-radius: 10px;
-  padding: 10px 10px;
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--text-primary);
-}
-
-.menu-item:hover {
-  background: var(--bg-surface);
-}
-
-.menu-item.danger {
-  color: var(--danger-color);
-}
-
-.menu-item-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: inherit;
-  flex: 0 0 auto;
-}
-
-.menu-item-label {
-  min-width: 0;
-  flex: 1;
-}
-
-.menu-sep {
-  height: 1px;
-  background: var(--border-color);
-  margin: 6px 6px;
 }
 </style>

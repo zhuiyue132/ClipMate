@@ -51,6 +51,158 @@ body {
     color 0.18s ease;
 }
 
+.panel-overlay-surface {
+  background: linear-gradient(180deg, var(--overlay-surface-strong) 0%, var(--overlay-surface) 100%);
+  border: 1px solid var(--overlay-border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  backdrop-filter: blur(24px) saturate(1.08);
+  -webkit-backdrop-filter: blur(24px) saturate(1.08);
+  padding: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.panel-overlay-surface--popover {
+  padding: 10px;
+}
+
+.panel-overlay-surface--dialog {
+  padding: 0;
+}
+
+.panel-chip-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--border-color) 88%, transparent);
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-quiet-action,
+.card-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border-color);
+  background: color-mix(in srgb, var(--surface-card) 90%, transparent);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: 5px 9px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    color var(--motion-normal) var(--ease-standard),
+    border-color var(--motion-normal) var(--ease-standard),
+    background var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-normal) var(--ease-standard),
+    transform var(--motion-normal) var(--ease-standard);
+}
+
+.panel-quiet-action:hover,
+.card-tool-btn:hover,
+.panel-quiet-action.active,
+.card-tool-btn.active {
+  color: var(--text-primary);
+  border-color: var(--accent-border);
+  background: color-mix(in srgb, var(--surface-card) 88%, var(--accent-fill));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring-accent) 72%, transparent);
+}
+
+.panel-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.panel-input,
+.panel-select {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  background: color-mix(in srgb, var(--surface-card) 94%, transparent);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-size: 13px;
+  outline: none;
+  transition:
+    border-color var(--motion-normal) var(--ease-standard),
+    box-shadow var(--motion-normal) var(--ease-standard),
+    background var(--motion-normal) var(--ease-standard);
+}
+
+.panel-input:focus,
+.panel-select:focus {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring-accent) 76%, transparent);
+}
+
+.panel-input--date {
+  min-width: 0;
+}
+
+.menu-item,
+.panel-menu-item {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition:
+    background var(--motion-normal) var(--ease-standard),
+    color var(--motion-normal) var(--ease-standard);
+}
+
+.menu-item:hover,
+.panel-menu-item:hover {
+  background: color-mix(in srgb, var(--surface-hover) 92%, transparent);
+}
+
+.menu-item.danger,
+.panel-menu-item.danger {
+  color: var(--danger-color);
+}
+
+.menu-item-icon,
+.panel-menu-item__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+  flex: 0 0 auto;
+}
+
+.menu-item-label,
+.panel-menu-item__label {
+  min-width: 0;
+  flex: 1;
+}
+
+.menu-sep,
+.panel-menu-sep {
+  height: 1px;
+  background: color-mix(in srgb, var(--border-color) 82%, transparent);
+  margin: 6px 6px;
+}
+
 @keyframes spin {
   from {
     transform: rotate(0deg);
