@@ -31,6 +31,7 @@ interface SeededSmokeItems {
   previewId: string
   linkId: string
   imageId: string
+  imageTitle: string
   fileId: string
   colorId: string
   editableText: string
@@ -214,6 +215,7 @@ function seedSmokeItems(): SeededSmokeItems {
   const updatedLinkUrl = `https://example.com/clipmate-smoke-updated-${Date.now()}`
   const linkDescription = `${token} metadata description for preview validation`
   const imageOcrText = `${token} OCR TEXT`
+  const imageTitle = `Image ${token}`
   const filePaths = ['/tmp/clipmate-smoke-a.txt', '/tmp/clipmate-smoke-b.png']
   const colorValue = '#007aff'
   const updatedColorValue = '#34c759'
@@ -277,7 +279,7 @@ function seedSmokeItems(): SeededSmokeItems {
     ocrText: imageOcrText,
     sourceApp: SMOKE_SOURCE_APP,
     sourceAppName: 'ClipMate Smoke',
-    title: `Image ${token}`,
+    title: imageTitle,
     thumbnail: Buffer.from(SMOKE_IMAGE_BASE64, 'base64'),
     linkMeta: null,
     isConfidential: 0,
@@ -322,6 +324,7 @@ function seedSmokeItems(): SeededSmokeItems {
     previewId,
     linkId,
     imageId,
+    imageTitle,
     fileId,
     colorId,
     editableText,
@@ -341,15 +344,24 @@ function seedSmokeItems(): SeededSmokeItems {
 
 function cleanupSmokeItems(seed: SeededSmokeItems): void {
   const db = getDatabase()
+  const createdOcrTitle = `${seed.imageTitle} · OCR`
   const rows = db
     .prepare(
       `
         SELECT id
         FROM clip_items
-        WHERE source_app = ? OR plain_text = ?
+        WHERE source_app = ?
+          OR plain_text = ?
+          OR (source_app = ? AND title = ? AND plain_text = ?)
       `
     )
-    .all(SMOKE_SOURCE_APP, seed.liveClipboardText) as Array<{ id: string }>
+    .all(
+      SMOKE_SOURCE_APP,
+      seed.liveClipboardText,
+      'com.clipmate.app',
+      createdOcrTitle,
+      seed.imageOcrText
+    ) as Array<{ id: string }>
 
   const ids = Array.from(new Set(rows.map((row) => row.id)))
   if (ids.length > 0) {
@@ -795,6 +807,121 @@ export async function runPanelSmokeTest(options: SmokeOptions): Promise<void> {
       `Image preview did not render expected content: ${JSON.stringify(imagePreviewState)}`
     )
     result.previewImage = imagePreviewState
+
+    const imageOcrCopyState = await imagePreviewWindow.webContents.executeJavaScript(`
+      (async () => {
+        const button = Array.from(document.querySelectorAll('.preview-content-section button')).find((node) =>
+          node.textContent?.includes('复制文字')
+        )
+        if (!button) return { ok: false, reason: 'missing-copy-ocr-button' }
+        if (button.disabled) return { ok: false, reason: 'copy-ocr-button-disabled' }
+        button.click()
+        await new Promise((resolve) => setTimeout(resolve, 180))
+        return {
+          ok: true,
+          toast: document.querySelector('.toast')?.textContent?.trim() ?? ''
+        }
+      })()
+    `)
+    assert(
+      imageOcrCopyState.ok && imageOcrCopyState.toast.includes('已复制 OCR 文字'),
+      `Image OCR copy action failed: ${JSON.stringify(imageOcrCopyState)}`
+    )
+    await waitFor(
+      () => (clipboard.readText() === seeded.imageOcrText ? true : null),
+      2_500,
+      'OCR text to reach system clipboard'
+    )
+    result.imageOcrCopy = {
+      ok: true,
+      toast: imageOcrCopyState.toast
+    }
+
+    const imageOcrCreateState = await imagePreviewWindow.webContents.executeJavaScript(`
+      (async () => {
+        const button = Array.from(document.querySelectorAll('.preview-content-section button')).find((node) =>
+          node.textContent?.includes('转为文本条目')
+        )
+        if (!button) return { ok: false, reason: 'missing-create-ocr-button' }
+        if (button.disabled) return { ok: false, reason: 'create-ocr-button-disabled' }
+        button.click()
+        await new Promise((resolve) => setTimeout(resolve, 220))
+        return {
+          ok: true,
+          toast: document.querySelector('.toast')?.textContent?.trim() ?? ''
+        }
+      })()
+    `)
+    assert(
+      imageOcrCreateState.ok && imageOcrCreateState.toast.includes('已创建文本条目'),
+      `Image OCR create action failed: ${JSON.stringify(imageOcrCreateState)}`
+    )
+
+    const createdOcrTitle = `${seeded.imageTitle} · OCR`
+    const createdOcrItemId = await waitFor(
+      () => {
+        const row = getDatabase()
+          .prepare(
+            `
+              SELECT id
+              FROM clip_items
+              WHERE source_app = ?
+                AND title = ?
+                AND plain_text = ?
+              ORDER BY created_at DESC
+              LIMIT 1
+            `
+          )
+          .get('com.clipmate.app', createdOcrTitle, seeded.imageOcrText) as
+          | { id: string }
+          | undefined
+
+        return row?.id ?? null
+      },
+      3_500,
+      'OCR-created text item to persist'
+    )
+
+    const createdOcrItem = getClipItemById(createdOcrItemId)
+    assert(
+      createdOcrItem?.type === 'text' &&
+        createdOcrItem.plain_text === seeded.imageOcrText &&
+        createdOcrItem.source_app === 'com.clipmate.app' &&
+        createdOcrItem.source_app_name === 'ClipMate' &&
+        createdOcrItem.title === createdOcrTitle,
+      `OCR-created text item did not persist expected payload: ${JSON.stringify(createdOcrItem)}`
+    )
+
+    const createdOcrPreviewWindow = await openPreviewWindowForItem(
+      createdOcrItemId,
+      'OCR-created text preview window'
+    )
+    const createdOcrPreviewState = await createdOcrPreviewWindow.webContents.executeJavaScript(`
+      ({
+        hash: window.location.hash,
+        hasHeader: Boolean(document.querySelector('.preview-header')),
+        hasFooter: Boolean(document.querySelector('.preview-footer')),
+        hasScene: Boolean(document.querySelector('.preview-scene')),
+        hasMetaList: Boolean(document.querySelector('.preview-meta-list')),
+        hasTextBlock: Boolean(document.querySelector('.preview-text')),
+        hasCreatedTitle: document.body.innerText.includes(${JSON.stringify(createdOcrTitle)}),
+        hasOcrText: document.body.innerText.includes(${JSON.stringify(seeded.imageOcrText)}),
+        body: document.body.innerText.slice(0, 1400)
+      })
+    `)
+    assertPreviewShell(createdOcrPreviewState, 'OCR-created text preview')
+    assert(
+      createdOcrPreviewState.hasTextBlock &&
+        createdOcrPreviewState.hasCreatedTitle &&
+        createdOcrPreviewState.hasOcrText,
+      `OCR-created text preview did not render expected content: ${JSON.stringify(createdOcrPreviewState)}`
+    )
+    result.imageOcrCreate = {
+      ok: true,
+      toast: imageOcrCreateState.toast,
+      createdItemId: createdOcrItemId,
+      title: createdOcrTitle
+    }
 
     const filePreviewWindow = await openPreviewWindowForItem(seeded.fileId, 'file preview window')
     const filePreviewState = await filePreviewWindow.webContents.executeJavaScript(`

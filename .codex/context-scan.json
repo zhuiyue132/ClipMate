@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-26",
+  "lastUpdated": "2026-03-27",
   "project": {
     "name": "ClipMate",
     "category": "macOS clipboard manager",
@@ -114,6 +114,13 @@
     "buildUnpack": "npm run build:unpack",
     "buildMac": "npm run build:mac",
     "panelSmoke": "CLIPMATE_SMOKE_TEST=1 electron-vite preview"
+  },
+  "verification": {
+    "panelSmokeCovers": [
+      "main panel open/search/select/live mutation flow",
+      "preview edit flows for text/link/color items",
+      "image OCR extract actions for copy and create-text-item paths"
+    ]
   },
   "docs": {
     "readme": "README.md",

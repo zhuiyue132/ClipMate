@@ -1,6 +1,6 @@
 # ClipMate Project Context
 
-最后更新：2026-03-26
+最后更新：2026-03-27
 
 ## 1. 这个项目是什么
 
@@ -107,7 +107,7 @@
 - 主进程首屏快照：`src/main/panelSnapshot.ts`
 - 性能事件：`src/main/index.ts` + `src/main/events.ts`
 - 虚拟列表和卡片渲染：`src/renderer/src/App.vue`
-- 冒烟回归：`src/main/smoke/panelFlow.ts`
+- 冒烟回归：`src/main/smoke/panelFlow.ts`（现覆盖主面板基础流、预览编辑，以及图片 OCR 提取 copy/create）
 
 ### 5.5 改预览窗口或多窗口行为
 
