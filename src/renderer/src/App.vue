@@ -178,6 +178,10 @@ const isSearchActive = computed(() => {
   )
 })
 
+const showSearchBanner = computed(() => {
+  return hasRemoteSearchQuery.value || sourceAppFilter.value !== null || datePreset.value !== 'all'
+})
+
 const filterActiveCount = computed(() => {
   let count = 0
   if (sourceAppFilter.value !== null) count += 1
@@ -1591,9 +1595,9 @@ onBeforeUnmount(() => {
     <main class="app-content">
       <div class="layout">
         <section class="main-panel">
-          <div v-if="isSearchActive || multiSelectActive" class="panel-scene-stack">
+          <div v-if="showSearchBanner || multiSelectActive" class="panel-scene-stack">
             <FeedbackBanner
-              v-if="isSearchActive"
+              v-if="showSearchBanner"
               tone="accent"
               compact
               :title="searchSceneTitle"

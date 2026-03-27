@@ -484,6 +484,133 @@ export async function runPanelSmokeTest(options: SmokeOptions): Promise<void> {
     )
     result.searchExit = exitSearchState
 
+    const typeOnlyFilterState = await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+        const imageChip = Array.from(document.querySelectorAll('.segmented-filter__option')).find((node) =>
+          node.textContent?.trim() === '图片'
+        )
+        if (!imageChip) return { ok: false, reason: 'missing-image-type-chip' }
+        imageChip.click()
+        await wait(220)
+
+        return {
+          ok:
+            Boolean(document.querySelector('[data-card-id="${seeded.imageId}"]')) &&
+            !document.querySelector('[data-card-id="${seeded.previewId}"]') &&
+            !document.querySelector('[data-card-id="${seeded.linkId}"]') &&
+            !document.querySelector('.panel-scene-stack .feedback-banner--accent'),
+          hasAccentBanner: Boolean(document.querySelector('.panel-scene-stack .feedback-banner--accent')),
+          activeTypeLabel:
+            document.querySelector('.segmented-filter__option.is-active')?.textContent?.trim() ?? '',
+          hasImageCard: Boolean(document.querySelector('[data-card-id="${seeded.imageId}"]')),
+          hasTextCard: Boolean(document.querySelector('[data-card-id="${seeded.previewId}"]')),
+          hasLinkCard: Boolean(document.querySelector('[data-card-id="${seeded.linkId}"]')),
+          renderedCards: document.querySelectorAll('.card').length
+        }
+      })()
+    `)
+    assert(
+      typeOnlyFilterState.ok &&
+        typeOnlyFilterState.activeTypeLabel === '图片' &&
+        !typeOnlyFilterState.hasAccentBanner,
+      `Type-only filter should keep browse presentation: ${JSON.stringify(typeOnlyFilterState)}`
+    )
+    result.typeOnlyFilter = typeOnlyFilterState
+
+    const queryTypeFilterState = await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+        const input = document.querySelector('.search-input')
+        if (!input) return { ok: false, reason: 'missing-search-input' }
+
+        input.focus()
+        input.value = ${JSON.stringify(seeded.imageOcrText)}
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(420)
+
+        const chips = Array.from(document.querySelectorAll('.panel-search-scene__chips .status-pill'))
+          .map((node) => node.textContent?.trim())
+          .filter(Boolean)
+
+        return {
+          ok:
+            Boolean(document.querySelector('.panel-scene-stack .feedback-banner--accent')) &&
+            chips.some((label) => label?.includes('关键词：')) &&
+            chips.some((label) => label?.includes('类型：图片')) &&
+            Boolean(document.querySelector('[data-card-id="${seeded.imageId}"]')),
+          hasAccentBanner: Boolean(document.querySelector('.panel-scene-stack .feedback-banner--accent')),
+          chips,
+          renderedCards: document.querySelectorAll('.card').length,
+          body: document.body.innerText.slice(0, 1200)
+        }
+      })()
+    `)
+    assert(
+      queryTypeFilterState.ok,
+      `Query + type filter should show accent banner context: ${JSON.stringify(queryTypeFilterState)}`
+    )
+    result.queryTypeFilter = queryTypeFilterState
+
+    const dateTypeFilterState = await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+        const input = document.querySelector('.search-input')
+        if (!input) return { ok: false, reason: 'missing-search-input' }
+
+        input.focus()
+        input.value = ''
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+        await wait(120)
+
+        const filterButton = document.querySelector('.toolbar-icon-button[title="筛选"]')
+        if (!filterButton) return { ok: false, reason: 'missing-filter-button' }
+        filterButton.click()
+        await wait(100)
+
+        const todayButton = Array.from(document.querySelectorAll('.panel-filter-popover__preset')).find((node) =>
+          node.textContent?.trim() === '今天'
+        )
+        if (!todayButton) return { ok: false, reason: 'missing-today-filter-button' }
+        todayButton.click()
+        await wait(220)
+
+        const chips = Array.from(document.querySelectorAll('.panel-search-scene__chips .status-pill'))
+          .map((node) => node.textContent?.trim())
+          .filter(Boolean)
+        const hadAccentBanner = Boolean(
+          document.querySelector('.panel-scene-stack .feedback-banner--accent')
+        )
+
+        const clearFiltersButton = Array.from(document.querySelectorAll('.panel-scene-stack button')).find((node) =>
+          node.textContent?.includes('清除筛选')
+        )
+        clearFiltersButton?.click()
+        await wait(200)
+
+        return {
+          ok:
+            hadAccentBanner &&
+            chips.some((label) => label?.includes('类型：图片')) &&
+            chips.some((label) => label?.includes('日期：今天')) &&
+            Boolean(document.querySelector('[data-card-id="${seeded.imageId}"]')),
+          resetOk:
+            document.querySelector('.segmented-filter__option.is-active')?.textContent?.trim() === '全部' &&
+            !document.querySelector('.panel-scene-stack .feedback-banner--accent'),
+          hasAccentBannerBeforeReset: hadAccentBanner,
+          chips,
+          activeTypeAfterReset:
+            document.querySelector('.segmented-filter__option.is-active')?.textContent?.trim() ?? '',
+          renderedCardsAfterReset: document.querySelectorAll('.card').length
+        }
+      })()
+    `)
+    assert(
+      dateTypeFilterState.ok && dateTypeFilterState.resetOk,
+      `Date + type filter should show accent banner and clear cleanly: ${JSON.stringify(dateTypeFilterState)}`
+    )
+    result.dateTypeFilter = dateTypeFilterState
+
     const scrollState = await mainWindow.webContents.executeJavaScript(`
       (() => {
         const viewport = document.querySelector('.cards-viewport')

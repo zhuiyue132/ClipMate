@@ -148,7 +148,6 @@ export function updateTray(tray: Tray, options: CreateTrayOptions): void {
   const paused = options.isPaused()
   tray.setImage(createTrayIcon(paused))
   tray.setToolTip(paused ? 'ClipMate · 已暂停收集' : 'ClipMate')
-  tray.setContextMenu(buildContextMenu(options))
 }
 
 export function createTray(options: CreateTrayOptions): Tray {
@@ -157,6 +156,10 @@ export function createTray(options: CreateTrayOptions): Tray {
 
   tray.on('click', () => {
     options.onTogglePanel()
+  })
+
+  tray.on('right-click', () => {
+    tray.popUpContextMenu(buildContextMenu(options))
   })
 
   return tray
