@@ -1,5 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import UiIcon from './components/UiIcon.vue'
+import FeedbackBanner from './components/shared/FeedbackBanner.vue'
+import InlineActionGroup from './components/shared/InlineActionGroup.vue'
+import StatusPill from './components/shared/StatusPill.vue'
+import SettingsRow from './components/settings/SettingsRow.vue'
+import SettingsSection from './components/settings/SettingsSection.vue'
 import type {
   AppSettings,
   SettingsTabId,
@@ -13,12 +19,21 @@ import type {
   UpdateState
 } from '../../shared/types'
 
-const tabs: Array<{ value: SettingsTabId; label: string }> = [
-  { value: 'general', label: '通用' },
-  { value: 'privacy', label: '隐私' },
-  { value: 'storage', label: '存储' },
-  { value: 'sync', label: '同步' },
-  { value: 'about', label: '关于' }
+type SettingsNavIcon = 'settings' | 'shield' | 'database' | 'cloud' | 'info'
+
+type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
+
+const tabs: Array<{
+  value: SettingsTabId
+  label: string
+  icon: SettingsNavIcon
+  description: string
+}> = [
+  { value: 'general', label: '通用', icon: 'settings', description: '启动、外观与快捷键' },
+  { value: 'privacy', label: '隐私', icon: 'shield', description: '权限、保护策略与排除应用' },
+  { value: 'storage', label: '存储', icon: 'database', description: '历史保留与清理策略' },
+  { value: 'sync', label: '同步', icon: 'cloud', description: 'iCloud Drive 同步状态与操作' },
+  { value: 'about', label: '关于', icon: 'info', description: '版本信息与更新通道' }
 ]
 
 const shortcutLabels: Array<{ key: ShortcutAction; label: string; hint: string }> = [
@@ -63,6 +78,8 @@ const manualBundleName = ref('')
 let toastTimer: number | null = null
 let unsubSettings: (() => void) | null = null
 let unsubSettingsTab: (() => void) | null = null
+
+const currentTabMeta = computed(() => tabs.find((item) => item.value === tab.value) ?? tabs[0])
 
 function parseSettingsTabFromHash(): SettingsTabId | null {
   const [, query = ''] = window.location.hash.split('?')
@@ -168,6 +185,13 @@ function shortcutStatusLabel(key: ShortcutAction): string {
   return status.registered ? '已注册' : '冲突/无权限'
 }
 
+function shortcutStatusTone(key: ShortcutAction): StatusTone {
+  const label = shortcutStatusLabel(key)
+  if (label === '已注册' || label === '窗口内' || label === '条件注册') return 'success'
+  if (label === '未加载') return 'neutral'
+  return 'warning'
+}
+
 function screenPermissionLabel(): string {
   switch (systemPermissions.value.screen) {
     case 'granted':
@@ -187,8 +211,62 @@ function permissionStateLabel(granted: boolean): string {
   return granted ? '已授权' : '未授权'
 }
 
-function permissionPillClass(granted: boolean): string {
-  return granted ? 'ok' : 'warn'
+function permissionTone(granted: boolean): StatusTone {
+  return granted ? 'success' : 'warning'
+}
+
+function syncTone(): StatusTone {
+  switch (syncState.value.status) {
+    case 'idle':
+      return 'success'
+    case 'syncing':
+      return 'accent'
+    case 'error':
+      return 'danger'
+    case 'unavailable':
+      return 'warning'
+    default:
+      return 'neutral'
+  }
+}
+
+function updateTone(): StatusTone {
+  switch (updateState.value.status) {
+    case 'downloaded':
+    case 'available':
+      return 'success'
+    case 'checking':
+    case 'downloading':
+      return 'accent'
+    case 'error':
+      return 'danger'
+    case 'unavailable':
+      return 'warning'
+    default:
+      return 'neutral'
+  }
+}
+
+function updateSummary(): string {
+  if (updateState.value.message) return updateState.value.message
+  switch (updateState.value.status) {
+    case 'idle':
+      return '等待检查更新'
+    case 'checking':
+      return '正在检查更新'
+    case 'available':
+      return '发现可用更新'
+    case 'not-available':
+      return '当前已是最新版本'
+    case 'downloading':
+      return '正在下载更新'
+    case 'downloaded':
+      return '更新已下载，等待安装'
+    case 'error':
+      return '更新失败'
+    default:
+      return '当前环境不可用'
+  }
 }
 
 async function refreshSystemPermissions(message?: string): Promise<void> {
@@ -291,45 +369,65 @@ watch(tab, (nextTab) => {
 <template>
   <div class="settings-shell">
     <aside class="settings-sidebar">
-      <div class="brand">
-        <div class="brand-mark">CM</div>
-        <div>
-          <div class="brand-title">ClipMate</div>
-          <div class="brand-sub">设置与偏好</div>
+      <div class="settings-brand">
+        <div class="settings-brand__mark">CM</div>
+        <div class="settings-brand__meta">
+          <div class="settings-brand__title">ClipMate</div>
+          <div class="settings-brand__subtitle">设置与偏好</div>
         </div>
       </div>
 
-      <div class="tab-list">
+      <div class="settings-nav">
         <button
           v-for="item in tabs"
           :key="item.value"
-          class="tab-btn"
-          :class="{ active: tab === item.value }"
+          class="settings-nav__item"
+          :class="{ 'is-active': tab === item.value }"
           @click="setTab(item.value)"
         >
-          {{ item.label }}
+          <span class="settings-nav__icon"><UiIcon :name="item.icon" :size="18" /></span>
+          <span class="settings-nav__copy">
+            <span class="settings-nav__label">{{ item.label }}</span>
+            <span class="settings-nav__description">{{ item.description }}</span>
+          </span>
         </button>
       </div>
     </aside>
 
     <main class="settings-main">
       <header class="settings-header">
-        <div>
-          <div class="page-title">{{ tabs.find((item) => item.value === tab)?.label }}</div>
-          <div class="page-sub">调整应用行为、隐私策略与同步偏好</div>
+        <div class="settings-header__copy">
+          <div class="settings-header__eyebrow">{{ currentTabMeta.label }}</div>
+          <div class="settings-header__title-row">
+            <UiIcon :name="currentTabMeta.icon" :size="22" />
+            <h1 class="settings-header__title">{{ currentTabMeta.label }}</h1>
+          </div>
+          <p class="settings-header__description">{{ currentTabMeta.description }}</p>
         </div>
-        <div v-if="toast" class="settings-toast">{{ toast }}</div>
+
+        <StatusPill
+          :label="toast ? '刚刚更新' : '设置面板'"
+          :tone="toast ? 'accent' : 'neutral'"
+          :strong="true"
+        />
       </header>
+
+      <FeedbackBanner
+        v-if="toast"
+        tone="accent"
+        compact
+        :title="toast"
+        message="设置已同步到当前应用状态。"
+      />
 
       <div v-if="settings" class="settings-content">
         <template v-if="tab === 'general'">
-          <section class="group-card">
-            <div class="group-title">基础偏好</div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">开机启动</div>
-                <div class="setting-hint">登录 macOS 后自动启动 ClipMate</div>
-              </div>
+          <SettingsSection
+            eyebrow="General"
+            title="启动与外观"
+            description="控制应用随系统启动和全局主题表现。"
+          >
+            <SettingsRow label="开机启动" hint="登录 macOS 后自动启动 ClipMate。">
               <button
                 class="toggle"
                 :class="{ on: settings.general.launchAtLogin }"
@@ -337,109 +435,103 @@ watch(tab, (nextTab) => {
               >
                 <span></span>
               </button>
-            </div>
+            </SettingsRow>
 
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">外观</div>
-                <div class="setting-hint">支持跟随系统、浅色和深色</div>
-              </div>
+            <SettingsRow label="外观" hint="支持跟随系统、浅色和深色。">
               <select
                 v-model="settings.general.theme"
-                class="select"
+                class="panel-select settings-select"
                 @change="persistSettings('已更新外观设置')"
               >
                 <option value="system">跟随系统</option>
                 <option value="light">浅色</option>
                 <option value="dark">深色</option>
               </select>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsSection>
 
-          <section class="group-card">
-            <div class="group-title">快捷键</div>
-            <div v-for="item in shortcutLabels" :key="item.key" class="shortcut-row">
-              <div>
-                <div class="setting-name">{{ item.label }}</div>
-                <div class="setting-hint">{{ item.hint }}</div>
+          <SettingsSection
+            eyebrow="Shortcuts"
+            title="快捷键"
+            description="分为全局快捷键与窗口内快捷键，保持触发范围清晰。"
+          >
+            <SettingsRow
+              v-for="item in shortcutLabels"
+              :key="item.key"
+              :label="item.label"
+              :hint="item.hint"
+            >
+              <div class="settings-shortcut-control">
+                <input
+                  v-model="settings.shortcuts[item.key]"
+                  class="panel-input settings-shortcut-input"
+                  @blur="persistSettings('已保存快捷键')"
+                />
+                <StatusPill
+                  :label="shortcutStatusLabel(item.key)"
+                  :tone="shortcutStatusTone(item.key)"
+                />
               </div>
-              <input
-                v-model="settings.shortcuts[item.key]"
-                class="shortcut-input"
-                @blur="persistSettings('已保存快捷键')"
-              />
-              <span
-                class="state-pill"
-                :class="{
-                  warn:
-                    shortcutStatusLabel(item.key) !== '已注册' &&
-                    shortcutStatusLabel(item.key) !== '窗口内' &&
-                    shortcutStatusLabel(item.key) !== '条件注册'
-                }"
-              >
-                {{ shortcutStatusLabel(item.key) }}
-              </span>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsSection>
         </template>
 
         <template v-else-if="tab === 'privacy'">
-          <section class="group-card">
-            <div class="group-title">系统权限</div>
-            <div class="permission-grid">
-              <div class="permission-card">
-                <div>
-                  <div class="setting-name">辅助功能</div>
-                  <div class="setting-hint">
-                    用于 Direct Paste、QuickPaste 与 Paste Stack 自动粘贴
-                  </div>
-                </div>
-                <span
-                  class="state-pill"
-                  :class="permissionPillClass(systemPermissions.accessibility)"
-                >
-                  {{ permissionStateLabel(systemPermissions.accessibility) }}
-                </span>
-                <div class="manual-row permission-actions">
-                  <button class="primary-btn" @click="requestAccessibilityPermission()">
+          <SettingsSection
+            eyebrow="Permissions"
+            title="系统权限"
+            description="Direct Paste、QuickPaste 与屏幕共享保护都依赖这里的状态。"
+          >
+            <SettingsRow
+              label="辅助功能"
+              hint="用于 Direct Paste、QuickPaste 与 Paste Stack 自动粘贴。"
+            >
+              <div class="settings-row-stack">
+                <StatusPill
+                  :label="permissionStateLabel(systemPermissions.accessibility)"
+                  :tone="permissionTone(systemPermissions.accessibility)"
+                />
+                <InlineActionGroup align="end">
+                  <button class="primary-btn compact" @click="requestAccessibilityPermission()">
                     请求授权
                   </button>
-                  <button class="ghost-btn" @click="openPrivacySettings('accessibility')">
+                  <button class="ghost-btn compact" @click="openPrivacySettings('accessibility')">
                     打开系统设置
                   </button>
-                </div>
+                </InlineActionGroup>
               </div>
+            </SettingsRow>
 
-              <div class="permission-card">
-                <div>
-                  <div class="setting-name">屏幕录制</div>
-                  <div class="setting-hint">用于检测共享/录屏权限状态，并配合窗口隐藏策略生效</div>
-                </div>
-                <span
-                  class="state-pill"
-                  :class="permissionPillClass(systemPermissions.screen === 'granted')"
-                >
-                  {{ screenPermissionLabel() }}
-                </span>
-                <div class="manual-row permission-actions">
-                  <button class="ghost-btn" @click="openPrivacySettings('screen')">
+            <SettingsRow
+              label="屏幕录制"
+              hint="用于检测共享 / 录屏权限状态，并配合窗口隐藏策略生效。"
+            >
+              <div class="settings-row-stack">
+                <StatusPill
+                  :label="screenPermissionLabel()"
+                  :tone="permissionTone(systemPermissions.screen === 'granted')"
+                />
+                <InlineActionGroup align="end">
+                  <button class="ghost-btn compact" @click="openPrivacySettings('screen')">
                     打开系统设置
                   </button>
-                  <button class="ghost-btn" @click="refreshSystemPermissions('已刷新权限状态')">
+                  <button
+                    class="ghost-btn compact"
+                    @click="refreshSystemPermissions('已刷新权限状态')"
+                  >
                     重新检测
                   </button>
-                </div>
+                </InlineActionGroup>
               </div>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsSection>
 
-          <section class="group-card">
-            <div class="group-title">保护策略</div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">屏幕共享时隐藏</div>
-                <div class="setting-hint">启用内容保护，避免窗口出现在共享画面中</div>
-              </div>
+          <SettingsSection
+            eyebrow="Protection"
+            title="保护策略"
+            description="控制窗口隐藏与对机密内容的处理方式。"
+          >
+            <SettingsRow label="屏幕共享时隐藏" hint="启用内容保护，避免窗口出现在共享画面中。">
               <button
                 class="toggle"
                 :class="{ on: settings.privacy.hideOnScreenShare }"
@@ -447,13 +539,12 @@ watch(tab, (nextTab) => {
               >
                 <span></span>
               </button>
-            </div>
+            </SettingsRow>
 
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">忽略机密剪贴板</div>
-                <div class="setting-hint">跳过被系统标记为 concealed / transient 的内容</div>
-              </div>
+            <SettingsRow
+              label="忽略机密剪贴板"
+              hint="跳过被系统标记为 concealed / transient 的内容。"
+            >
               <button
                 class="toggle"
                 :class="{ on: settings.privacy.ignoreConcealed }"
@@ -461,63 +552,81 @@ watch(tab, (nextTab) => {
               >
                 <span></span>
               </button>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsSection>
 
-          <section class="group-card">
-            <div class="group-title">应用排除</div>
-            <div class="manual-row">
+          <SettingsSection
+            eyebrow="Exclusions"
+            title="应用排除"
+            description="这些应用的剪贴板将不会被 ClipMate 自动采集。"
+          >
+            <FeedbackBanner
+              compact
+              :tone="settings.privacy.excludedApps.length > 0 ? 'success' : 'neutral'"
+              :title="
+                settings.privacy.excludedApps.length > 0
+                  ? `已排除 ${settings.privacy.excludedApps.length} 个应用`
+                  : '尚未添加排除应用'
+              "
+              message="支持手动输入 Bundle ID，也可以从最近来源应用一键添加。"
+            />
+
+            <div class="settings-manual-row">
               <input
                 v-model="manualBundleId"
-                class="text-input"
+                class="panel-input"
                 placeholder="Bundle ID，例如 com.1password.1password"
               />
-              <input v-model="manualBundleName" class="text-input" placeholder="应用名称（可选）" />
+              <input
+                v-model="manualBundleName"
+                class="panel-input"
+                placeholder="应用名称（可选）"
+              />
               <button class="primary-btn" @click="addManualExcludedApp()">添加</button>
             </div>
 
-            <div v-if="settings.privacy.excludedApps.length === 0" class="empty-hint">
-              尚未添加排除应用
-            </div>
-            <div v-else class="chip-grid">
+            <div v-if="settings.privacy.excludedApps.length > 0" class="settings-app-grid">
               <div
                 v-for="item in settings.privacy.excludedApps"
                 :key="item.bundleId"
-                class="app-chip"
+                class="settings-app-card"
               >
                 <div>
-                  <div class="setting-name">{{ item.name || item.bundleId }}</div>
-                  <div class="setting-hint">{{ item.bundleId }}</div>
+                  <div class="settings-card-title">{{ item.name || item.bundleId }}</div>
+                  <div class="settings-card-subtitle">{{ item.bundleId }}</div>
                 </div>
-                <button class="ghost-btn" @click="removeExcludedApp(item.bundleId)">移除</button>
+                <button class="ghost-btn compact" @click="removeExcludedApp(item.bundleId)">
+                  移除
+                </button>
               </div>
             </div>
 
-            <div class="sub-title">最近来源应用</div>
-            <div class="chip-grid">
-              <button
-                v-for="item in availableApps"
-                :key="item.source_app"
-                class="suggest-chip"
-                @click="addExcludedApp(item.source_app, item.source_app_name)"
-              >
-                {{ item.source_app_name || item.source_app }}
-              </button>
+            <div class="settings-suggestion-block">
+              <div class="sub-title">最近来源应用</div>
+              <div class="settings-suggestion-grid">
+                <button
+                  v-for="item in availableApps"
+                  :key="item.source_app"
+                  class="ghost-btn compact"
+                  @click="addExcludedApp(item.source_app, item.source_app_name)"
+                >
+                  {{ item.source_app_name || item.source_app }}
+                </button>
+              </div>
             </div>
-          </section>
+          </SettingsSection>
         </template>
 
         <template v-else-if="tab === 'storage'">
-          <section class="group-card">
-            <div class="group-title">自动清理</div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">历史数量上限</div>
-                <div class="setting-hint">超出上限时自动删除最旧条目</div>
-              </div>
+          <SettingsSection
+            eyebrow="Retention"
+            title="自动清理"
+            description="保留策略会在写入历史后自动生效。"
+          >
+            <SettingsRow label="历史数量上限" hint="超出上限时自动删除最旧条目。">
               <select
                 v-model="settings.storage.maxItems"
-                class="select"
+                class="panel-select settings-select"
                 @change="persistSettings('已更新数量上限')"
               >
                 <option :value="100">100</option>
@@ -525,16 +634,12 @@ watch(tab, (nextTab) => {
                 <option :value="1000">1000</option>
                 <option :value="null">不限</option>
               </select>
-            </div>
+            </SettingsRow>
 
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">保存时长</div>
-                <div class="setting-hint">自动清理超过保留期的历史记录</div>
-              </div>
+            <SettingsRow label="保存时长" hint="自动清理超过保留期的历史记录。">
               <select
                 v-model="settings.storage.maxAgeDays"
-                class="select"
+                class="panel-select settings-select"
                 @change="persistSettings('已更新时间规则')"
               >
                 <option :value="7">7 天</option>
@@ -542,122 +647,157 @@ watch(tab, (nextTab) => {
                 <option :value="90">90 天</option>
                 <option :value="null">永久</option>
               </select>
-            </div>
-          </section>
+            </SettingsRow>
+          </SettingsSection>
 
-          <section class="group-card">
-            <div class="group-title">数据管理</div>
-            <button class="danger-btn" @click="clearHistory()">清空全部历史</button>
-          </section>
+          <SettingsSection
+            eyebrow="Maintenance"
+            title="数据管理"
+            description="危险操作会立即影响当前数据库内容。"
+            tone="danger"
+          >
+            <SettingsRow label="清空全部历史" hint="该操作不可撤销。" stacked>
+              <InlineActionGroup align="start">
+                <button class="danger-btn" @click="clearHistory()">清空历史</button>
+              </InlineActionGroup>
+            </SettingsRow>
+          </SettingsSection>
         </template>
 
         <template v-else-if="tab === 'sync'">
-          <section class="group-card">
-            <div class="group-title">iCloud Drive 同步</div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">启用同步</div>
-                <div class="setting-hint">
-                  通过 iCloud Drive 在同一 Apple ID 的设备间同步历史记录
-                </div>
+          <SettingsSection
+            eyebrow="iCloud"
+            title="iCloud Drive 同步"
+            description="通过 iCloud Drive 在同一 Apple ID 的设备间同步历史记录。"
+          >
+            <SettingsRow label="启用同步" hint="关闭后不会主动写入或拉取同步文件。">
+              <div class="settings-row-stack">
+                <StatusPill :label="syncStatusLabel" :tone="syncTone()" />
+                <button
+                  class="toggle"
+                  :class="{ on: settings.sync.enabled }"
+                  @click="toggleBooleanSetting('sync', 'enabled')"
+                >
+                  <span></span>
+                </button>
               </div>
-              <button
-                class="toggle"
-                :class="{ on: settings.sync.enabled }"
-                @click="toggleBooleanSetting('sync', 'enabled')"
-              >
-                <span></span>
-              </button>
-            </div>
+            </SettingsRow>
 
-            <div class="stats-grid">
-              <div class="stat-card">
-                <div class="stat-label">状态</div>
-                <div class="stat-value">{{ syncStatusLabel }}</div>
+            <div class="settings-stat-grid">
+              <div class="settings-stat-card">
+                <div class="settings-stat-card__label">同步状态</div>
+                <div class="settings-stat-card__value">{{ syncStatusLabel }}</div>
               </div>
-              <div class="stat-card">
-                <div class="stat-label">上次同步</div>
-                <div class="stat-value">{{ formatTime(syncState.lastSyncAt) }}</div>
-              </div>
-            </div>
-
-            <div class="path-card">
-              <div class="setting-name">同步文件</div>
-              <div class="setting-hint">
-                {{ syncState.path || '当前未检测到 iCloud Drive 目录' }}
+              <div class="settings-stat-card">
+                <div class="settings-stat-card__label">上次同步</div>
+                <div class="settings-stat-card__value">{{ formatTime(syncState.lastSyncAt) }}</div>
               </div>
             </div>
 
-            <div v-if="syncState.lastError" class="error-box">{{ syncState.lastError }}</div>
+            <FeedbackBanner
+              compact
+              tone="neutral"
+              title="同步文件"
+              :message="syncState.path || '当前未检测到 iCloud Drive 目录'"
+            />
 
-            <button class="primary-btn" :disabled="!settings.sync.enabled" @click="runSyncNow()">
-              立即同步
-            </button>
-          </section>
+            <FeedbackBanner
+              v-if="syncState.lastError"
+              compact
+              tone="danger"
+              title="最近一次错误"
+              :message="syncState.lastError"
+            />
+
+            <SettingsRow label="立即同步" hint="会触发一次完整的写入 / 拉取流程。" stacked>
+              <InlineActionGroup align="start">
+                <button
+                  class="primary-btn"
+                  :disabled="!settings.sync.enabled"
+                  @click="runSyncNow()"
+                >
+                  立即同步
+                </button>
+              </InlineActionGroup>
+            </SettingsRow>
+          </SettingsSection>
         </template>
 
         <template v-else-if="tab === 'about'">
-          <section class="group-card">
-            <div class="group-title">版本信息</div>
-            <div class="info-row">
-              <span>当前版本</span>
-              <strong>{{ appVersion }}</strong>
-            </div>
-            <div class="info-row">
-              <span>数据库路径</span>
-              <code>{{ dbPath }}</code>
-            </div>
-            <div class="info-row">
-              <span>构建模式</span>
-              <strong>Electron + Vue 3 + SQLite</strong>
-            </div>
-          </section>
+          <SettingsSection
+            eyebrow="Build"
+            title="版本信息"
+            description="当前版本、数据库位置与运行形态。"
+          >
+            <SettingsRow label="当前版本" hint="应用版本号。">
+              <StatusPill :label="appVersion || '0.0.0'" tone="neutral" :strong="true" />
+            </SettingsRow>
+            <SettingsRow label="数据库路径" hint="本地 SQLite 文件位置。" stacked>
+              <code class="settings-code">{{ dbPath }}</code>
+            </SettingsRow>
+            <SettingsRow label="构建模式" hint="当前桌面端技术栈。">
+              <div class="settings-value-strong">Electron + Vue 3 + SQLite</div>
+            </SettingsRow>
+          </SettingsSection>
 
-          <section class="group-card">
-            <div class="group-title">更新</div>
-            <div class="setting-row">
-              <div>
-                <div class="setting-name">更新源 URL</div>
-                <div class="setting-hint">指向包含 `latest-mac.yml` 与安装包的 HTTP 目录</div>
-              </div>
+          <SettingsSection
+            eyebrow="Updates"
+            title="更新"
+            description="打包版可接入自动更新流程，开发态仅验证接线状态。"
+          >
+            <SettingsRow
+              label="更新源 URL"
+              hint="指向包含 latest-mac.yml 与安装包的 HTTP 目录。"
+              stacked
+            >
               <input
                 v-model="settings.general.updateFeedUrl"
-                class="text-input"
+                class="panel-input"
                 placeholder="https://updates.example.com/clipmate"
                 @blur="persistSettings('已保存更新源')"
               />
-            </div>
-            <div class="info-row">
-              <span>更新状态</span>
-              <strong>{{ updateState.message || updateState.status }}</strong>
-            </div>
-            <div v-if="updateState.availableVersion" class="info-row">
-              <span>可用版本</span>
-              <strong>{{ updateState.availableVersion }}</strong>
-            </div>
-            <div v-if="typeof updateState.progress === 'number'" class="info-row">
-              <span>下载进度</span>
-              <strong>{{ Math.round(updateState.progress) }}%</strong>
-            </div>
+            </SettingsRow>
 
-            <div class="manual-row">
-              <button class="primary-btn" @click="checkUpdates()">检查更新</button>
-              <button
-                class="primary-btn"
-                :disabled="updateState.status !== 'available'"
-                @click="downloadUpdatePackage()"
-              >
-                下载更新
-              </button>
-              <button
-                class="danger-btn"
-                :disabled="updateState.status !== 'downloaded'"
-                @click="installDownloadedUpdate()"
-              >
-                重启安装
-              </button>
-            </div>
-          </section>
+            <SettingsRow label="更新状态" hint="当前检查、下载或安装阶段。">
+              <StatusPill :label="updateSummary()" :tone="updateTone()" />
+            </SettingsRow>
+
+            <SettingsRow
+              v-if="updateState.availableVersion"
+              label="可用版本"
+              hint="服务器返回的目标版本。"
+            >
+              <div class="settings-value-strong">{{ updateState.availableVersion }}</div>
+            </SettingsRow>
+
+            <SettingsRow
+              v-if="typeof updateState.progress === 'number'"
+              label="下载进度"
+              hint="仅在下载中显示。"
+            >
+              <div class="settings-value-strong">{{ Math.round(updateState.progress) }}%</div>
+            </SettingsRow>
+
+            <SettingsRow label="更新操作" hint="根据当前状态提供检查、下载和安装动作。" stacked>
+              <InlineActionGroup align="start">
+                <button class="primary-btn" @click="checkUpdates()">检查更新</button>
+                <button
+                  class="ghost-btn"
+                  :disabled="updateState.status !== 'available'"
+                  @click="downloadUpdatePackage()"
+                >
+                  下载更新
+                </button>
+                <button
+                  class="danger-btn"
+                  :disabled="updateState.status !== 'downloaded'"
+                  @click="installDownloadedUpdate()"
+                >
+                  重启安装
+                </button>
+              </InlineActionGroup>
+            </SettingsRow>
+          </SettingsSection>
         </template>
       </div>
     </main>
@@ -668,76 +808,113 @@ watch(tab, (nextTab) => {
 .settings-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  background:
-    radial-gradient(circle at top left, rgba(0, 122, 255, 0.14), transparent 26%),
-    radial-gradient(circle at bottom right, rgba(88, 86, 214, 0.1), transparent 24%),
-    var(--bg-primary);
+  grid-template-columns: 272px minmax(0, 1fr);
+  background: var(--bg-primary);
   color: var(--text-primary);
 }
 
 .settings-sidebar {
-  padding: 28px 20px;
-  border-right: 1px solid var(--border-color);
-  background: color-mix(in srgb, var(--bg-surface) 86%, rgba(255, 255, 255, 0.04));
-  backdrop-filter: blur(24px);
+  padding: 24px 18px;
+  border-right: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  background: linear-gradient(180deg, var(--surface-panel-strong) 0%, var(--surface-panel) 100%);
+  backdrop-filter: blur(24px) saturate(1.05);
 }
 
-.brand {
+.settings-brand {
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-bottom: 30px;
+  padding: 6px 8px 20px;
 }
 
-.brand-mark {
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+.settings-brand__mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
   background: linear-gradient(135deg, #007aff, #34c759);
   color: white;
   display: grid;
   place-items: center;
+  font-weight: 800;
+  box-shadow: 0 14px 34px rgba(0, 122, 255, 0.22);
+}
+
+.settings-brand__meta {
+  min-width: 0;
+}
+
+.settings-brand__title {
+  font-size: var(--font-title-sm);
   font-weight: 700;
 }
 
-.brand-title {
-  font-size: 16px;
-  font-weight: 700;
-}
-
-.brand-sub {
-  font-size: 12px;
+.settings-brand__subtitle {
+  margin-top: 4px;
+  font-size: var(--font-footnote);
   color: var(--text-secondary);
 }
 
-.tab-list {
+.settings-nav {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.tab-btn {
+.settings-nav__item {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 16px;
   border: 1px solid transparent;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 14px;
-  padding: 12px 14px;
-  text-align: left;
   cursor: pointer;
-  transition: 0.18s ease;
+  text-align: left;
 }
 
-.tab-btn:hover,
-.tab-btn.active {
+.settings-nav__item:hover,
+.settings-nav__item.is-active {
   color: var(--text-primary);
-  background: var(--bg-card);
-  border-color: var(--border-color);
+  border-color: color-mix(in srgb, var(--border-color) 78%, transparent);
+  background: linear-gradient(180deg, var(--surface-panel-strong) 0%, var(--surface-panel) 100%);
+  box-shadow: var(--shadow-section);
+}
+
+.settings-nav__icon {
+  margin-top: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+
+.settings-nav__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settings-nav__label {
+  font-size: var(--font-body-strong);
+  font-weight: 650;
+}
+
+.settings-nav__description {
+  font-size: var(--font-caption);
+  line-height: 1.5;
+  color: var(--text-tertiary);
 }
 
 .settings-main {
   min-width: 0;
   padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
 }
 
 .settings-header {
@@ -745,26 +922,40 @@ watch(tab, (nextTab) => {
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 20px;
 }
 
-.page-title {
-  font-size: 28px;
+.settings-header__copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-header__eyebrow {
+  font-size: var(--font-caption);
   font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
-.page-sub {
-  margin-top: 6px;
+.settings-header__title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-header__title {
+  font-size: var(--font-display);
+  line-height: 1.05;
+  font-weight: 800;
+}
+
+.settings-header__description {
+  max-width: 720px;
+  font-size: var(--font-body);
+  line-height: 1.6;
   color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.settings-toast {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(0, 122, 255, 0.14);
-  border: 1px solid rgba(0, 122, 255, 0.24);
-  font-size: 12px;
 }
 
 .settings-content {
@@ -773,255 +964,162 @@ watch(tab, (nextTab) => {
   gap: 16px;
 }
 
-.group-card {
-  padding: 18px;
-  border: 1px solid var(--border-color);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--bg-card) 92%, rgba(255, 255, 255, 0.04));
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.08);
-}
-
-.group-title,
-.sub-title {
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 14px;
-}
-
-.sub-title {
-  margin-top: 18px;
-}
-
-.setting-row,
-.shortcut-row,
-.info-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  justify-content: space-between;
-  padding: 14px 0;
-}
-
-.setting-row + .setting-row,
-.shortcut-row + .shortcut-row,
-.info-row + .info-row {
-  border-top: 1px solid var(--border-color);
-}
-
-.setting-name {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.setting-hint {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.select,
-.shortcut-input,
-.text-input {
+.settings-select {
   min-width: 180px;
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 10px 12px;
-  outline: none;
 }
 
-.shortcut-row {
-  align-items: center;
-}
-
-.shortcut-input {
-  width: 220px;
-}
-
-.state-pill {
-  min-width: 92px;
-  text-align: center;
-  border-radius: 999px;
-  padding: 8px 10px;
-  font-size: 12px;
-  background: rgba(52, 199, 89, 0.14);
-  border: 1px solid rgba(52, 199, 89, 0.24);
-}
-
-.state-pill.ok {
-  background: rgba(52, 199, 89, 0.14);
-  border-color: rgba(52, 199, 89, 0.24);
-}
-
-.state-pill.warn {
-  background: rgba(255, 149, 0, 0.14);
-  border-color: rgba(255, 149, 0, 0.22);
-}
-
-.toggle {
-  width: 52px;
-  height: 32px;
-  border-radius: 999px;
-  border: none;
-  padding: 4px;
-  background: rgba(120, 120, 128, 0.24);
-  cursor: pointer;
-}
-
-.toggle span {
-  display: block;
-  width: 24px;
-  height: 24px;
-  border-radius: 999px;
-  background: white;
-  transition: transform 0.18s ease;
-}
-
-.toggle.on {
-  background: #34c759;
-}
-
-.toggle.on span {
-  transform: translateX(20px);
-}
-
-.manual-row,
-.stats-grid,
-.chip-grid,
-.permission-grid {
+.settings-shortcut-control,
+.settings-row-stack {
   display: flex;
-  gap: 12px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.settings-shortcut-input {
+  width: min(260px, 100%);
+}
+
+.settings-manual-row {
+  display: flex;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
-.manual-row {
-  margin-bottom: 14px;
-}
-
-.permission-grid {
-  align-items: stretch;
-}
-
-.text-input {
+.settings-manual-row .panel-input {
   flex: 1;
-  min-width: 220px;
+  min-width: 240px;
 }
 
-.app-chip,
-.permission-card,
-.path-card,
-.stat-card {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  border-radius: 16px;
-  padding: 14px;
+.settings-app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
 }
 
-.permission-card {
-  flex: 1;
-  min-width: 280px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.permission-actions {
-  margin-bottom: 0;
-}
-
-.app-chip {
+.settings-app-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  min-width: 260px;
+  gap: 14px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-panel-strong) 92%, transparent);
 }
 
-.suggest-chip,
-.ghost-btn,
-.danger-btn {
-  border: 1px solid var(--border-color);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  border-radius: 12px;
-  padding: 10px 12px;
-  cursor: pointer;
+.settings-card-title {
+  font-size: var(--font-body-strong);
+  font-weight: 650;
 }
 
-.danger-btn {
-  border-color: rgba(255, 59, 48, 0.24);
-  color: #ff3b30;
+.settings-card-subtitle {
+  margin-top: 4px;
+  font-size: var(--font-footnote);
+  color: var(--text-secondary);
+  word-break: break-all;
 }
 
-.stats-grid {
-  margin: 14px 0;
+.settings-suggestion-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.stat-card {
-  min-width: 180px;
+.settings-suggestion-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
-.stat-label {
-  font-size: 12px;
+.settings-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.settings-stat-card {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+  background: color-mix(in srgb, var(--surface-panel-strong) 92%, transparent);
+}
+
+.settings-stat-card__label {
+  font-size: var(--font-footnote);
   color: var(--text-secondary);
 }
 
-.stat-value {
+.settings-stat-card__value {
   margin-top: 8px;
-  font-size: 18px;
+  font-size: var(--font-title-sm);
+  line-height: 1.35;
   font-weight: 700;
+  color: var(--text-primary);
 }
 
-.path-card,
-.error-box {
-  margin-bottom: 14px;
-}
-
-.error-box {
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 59, 48, 0.12);
-  border: 1px solid rgba(255, 59, 48, 0.2);
-  color: #ff3b30;
-  font-size: 12px;
-}
-
-.info-row code {
-  max-width: 60%;
+.settings-code {
+  display: inline-flex;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  background: color-mix(in srgb, var(--surface-panel-strong) 92%, transparent);
+  font-size: var(--font-footnote);
+  color: var(--text-primary);
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-@media (max-width: 900px) {
+.settings-value-strong {
+  font-size: var(--font-body-strong);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+@media (max-width: 980px) {
   .settings-shell {
     grid-template-columns: 1fr;
   }
 
   .settings-sidebar {
     border-right: none;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
   }
 
-  .tab-list {
-    flex-direction: row;
-    flex-wrap: wrap;
+  .settings-nav {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
+}
 
+@media (max-width: 760px) {
   .settings-main {
-    padding: 20px;
+    padding: 18px 16px 20px;
   }
 
-  .shortcut-row,
-  .setting-row,
-  .info-row {
-    align-items: flex-start;
+  .settings-header {
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .shortcut-input,
-  .select {
+  .settings-header__title {
+    font-size: 28px;
+  }
+
+  .settings-shortcut-control,
+  .settings-row-stack,
+  .settings-manual-row {
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+
+  .settings-shortcut-input,
+  .settings-select,
+  .settings-row .surface-row__content {
     width: 100%;
   }
 }

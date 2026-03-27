@@ -11,6 +11,9 @@ import PanelMoreMenu from './components/panel/PanelMoreMenu.vue'
 import PanelStateView from './components/panel/PanelStateView.vue'
 import PanelToolbar from './components/panel/PanelToolbar.vue'
 import ToastNotice from './components/panel/ToastNotice.vue'
+import FeedbackBanner from './components/shared/FeedbackBanner.vue'
+import InlineActionGroup from './components/shared/InlineActionGroup.vue'
+import StatusPill from './components/shared/StatusPill.vue'
 import type {
   AppSettings,
   AppIconTarget,
@@ -180,6 +183,115 @@ const filterActiveCount = computed(() => {
   if (sourceAppFilter.value !== null) count += 1
   if (datePreset.value !== 'all') count += 1
   return count
+})
+
+const multiSelectActive = computed(() => selectedIds.value.length > 1)
+
+function activeDateFilterLabel(): string {
+  switch (datePreset.value) {
+    case 'today':
+      return '日期：今天'
+    case 'week':
+      return '日期：本周'
+    case 'custom':
+      if (customFrom.value && customTo.value) return `日期：${customFrom.value} → ${customTo.value}`
+      if (customFrom.value) return `日期：${customFrom.value} 之后`
+      if (customTo.value) return `日期：${customTo.value} 之前`
+      return '日期：自定义'
+    default:
+      return ''
+  }
+}
+
+const searchSceneChips = computed(() => {
+  const chips: Array<{ key: string; label: string }> = []
+
+  if (trimmedSearch.value) {
+    chips.push({ key: 'query', label: `关键词：${trimmedSearch.value}` })
+  }
+
+  if (typeChip.value !== 'all') {
+    chips.push({
+      key: 'type',
+      label: `类型：${TYPE_OPTIONS.find((option) => option.value === typeChip.value)?.label ?? '全部'}`
+    })
+  }
+
+  if (sourceAppFilter.value) {
+    const appName =
+      sourceApps.value.find((item) => item.source_app === sourceAppFilter.value)?.source_app_name ??
+      sourceAppFilter.value
+    chips.push({ key: 'source', label: `来源：${appName}` })
+  }
+
+  const dateLabel = activeDateFilterLabel()
+  if (dateLabel) chips.push({ key: 'date', label: dateLabel })
+
+  return chips
+})
+
+const searchSceneTitle = computed(() => {
+  if (hasRemoteSearchQuery.value) return `搜索 “${trimmedSearch.value}”`
+  if (isSearchActive.value) return '筛选结果'
+  return '历史浏览'
+})
+
+const searchSceneSubtitle = computed(() => {
+  if (searching.value) return '正在根据关键词与筛选条件检索剪贴板历史。'
+
+  const count = visibleItems.value.length
+  const countLabel = count === 0 ? '当前没有可见结果。' : `共 ${count} 项结果。`
+
+  if (hasRemoteSearchQuery.value && searchSceneChips.value.length > 1) {
+    return `${countLabel} 已叠加关键词与筛选条件。`
+  }
+  if (hasRemoteSearchQuery.value) {
+    return `${countLabel} 正显示关键词匹配结果。`
+  }
+  if (isSearchActive.value) {
+    return `${countLabel} 正显示当前筛选范围内的历史记录。`
+  }
+  return countLabel
+})
+
+const searchEmptyTitle = computed(() => {
+  if (hasRemoteSearchQuery.value && searchSceneChips.value.length > 1) {
+    return '没有符合当前搜索组合的结果'
+  }
+  if (hasRemoteSearchQuery.value) {
+    return `没有找到 “${trimmedSearch.value}”`
+  }
+  if (isSearchActive.value) {
+    return '当前筛选下没有条目'
+  }
+  return 'ClipMate 已就绪'
+})
+
+const searchEmptySubtitle = computed(() => {
+  if (hasRemoteSearchQuery.value && searchSceneChips.value.length > 1) {
+    return '试试清除部分筛选，或缩短关键词。'
+  }
+  if (hasRemoteSearchQuery.value) {
+    return '试试更换关键词，或切换其他筛选范围。'
+  }
+  if (isSearchActive.value) {
+    return '清除类型、来源或日期筛选后即可回到完整历史。'
+  }
+  return '复制内容后将自动显示在这里'
+})
+
+const selectionSummary = computed(() => {
+  if (!multiSelectActive.value) return ''
+
+  const selectedItems = visibleItems.value.filter((item) => selectedSet.value.has(item.id))
+  const typeCount = new Set(selectedItems.map((item) => item.type)).size
+  const typeSummary =
+    typeCount > 1 ? '多种内容类型' : `${typeLabel(selectedItems[0]?.type ?? 'text')}条目`
+  const stackSummary = pasteStackState.value.enabled
+    ? '可直接加入当前 Paste Stack。'
+    : '可一键加入 Paste Stack。'
+
+  return `${typeSummary}，可批量复制、加入 Stack 或直接删除。${stackSummary}`
 })
 
 const toolbarStatus = computed<{
@@ -947,9 +1059,42 @@ function showToast(message: string): void {
   }, 1800)
 }
 
+function clearSearchQuery(): void {
+  search.value = ''
+  focusSearchInput(true)
+}
+
+function clearAllFilters(): void {
+  typeChip.value = 'all'
+  syncTypeFocus('all')
+  sourceAppFilter.value = null
+  datePreset.value = 'all'
+  customFrom.value = ''
+  customTo.value = ''
+  filtersOpen.value = false
+}
+
+function exitSearchScene(): void {
+  clearSearchQuery()
+  clearAllFilters()
+}
+
 function clearSelection(): void {
   selectedIds.value = []
   anchorId.value = null
+}
+
+async function copySelectionAsText(): Promise<void> {
+  if (selectedIds.value.length === 0) return
+  const copied = await window.api.copyClipItemsAsText(selectedIds.value)
+  showToast(copied > 0 ? `已复制 ${copied} 项文本内容` : '所选条目没有可复制的文本内容')
+}
+
+async function enqueueSelectionToPasteStack(): Promise<void> {
+  if (selectedIds.value.length === 0) return
+  const added = await window.api.enqueuePasteStackItems(selectedIds.value)
+  await refreshPasteStack()
+  showToast(added > 0 ? `已加入 Paste Stack（${added} 项）` : '未加入任何条目')
 }
 
 function resetTransientPanelState(): void {
@@ -1446,6 +1591,66 @@ onBeforeUnmount(() => {
     <main class="app-content">
       <div class="layout">
         <section class="main-panel">
+          <div v-if="isSearchActive || multiSelectActive" class="panel-scene-stack">
+            <FeedbackBanner
+              v-if="isSearchActive"
+              tone="accent"
+              compact
+              :title="searchSceneTitle"
+              :message="searchSceneSubtitle"
+            >
+              <div class="panel-search-scene__chips">
+                <StatusPill
+                  v-for="chip in searchSceneChips"
+                  :key="chip.key"
+                  :label="chip.label"
+                  tone="accent"
+                />
+              </div>
+
+              <template #actions>
+                <InlineActionGroup align="end" compact>
+                  <button
+                    v-if="trimmedSearch"
+                    class="ghost-btn compact"
+                    @click="clearSearchQuery()"
+                  >
+                    清除关键词
+                  </button>
+                  <button
+                    v-if="typeChip !== 'all' || sourceAppFilter || datePreset !== 'all'"
+                    class="ghost-btn compact"
+                    @click="clearAllFilters()"
+                  >
+                    清除筛选
+                  </button>
+                  <button class="secondary-btn compact" @click="exitSearchScene()">退出搜索</button>
+                </InlineActionGroup>
+              </template>
+            </FeedbackBanner>
+
+            <FeedbackBanner
+              v-if="multiSelectActive"
+              tone="neutral"
+              compact
+              :title="`已选中 ${selectedIds.length} 项`"
+              :message="selectionSummary"
+            >
+              <template #actions>
+                <InlineActionGroup align="end" compact>
+                  <button class="ghost-btn compact" @click="copySelectionAsText()">
+                    复制为文本
+                  </button>
+                  <button class="ghost-btn compact" @click="enqueueSelectionToPasteStack()">
+                    加入 Paste Stack
+                  </button>
+                  <button class="secondary-btn compact" @click="clearSelection()">取消选择</button>
+                  <button class="danger-btn compact" @click="bulkDelete()">删除所选</button>
+                </InlineActionGroup>
+              </template>
+            </FeedbackBanner>
+          </div>
+
           <PanelStateView
             v-if="panelPreparing && !hasItems && !loading"
             mode="loading"
@@ -1453,14 +1658,41 @@ onBeforeUnmount(() => {
             subtitle="内容准备好后会立即显示"
           />
 
+          <div v-else-if="!hasItems && !loading && isSearchActive" class="panel-empty-state">
+            <PanelStateView
+              mode="empty"
+              :title="searchEmptyTitle"
+              :subtitle="searchEmptySubtitle"
+            />
+            <InlineActionGroup align="center" class="panel-empty-state__actions">
+              <button v-if="trimmedSearch" class="ghost-btn" @click="clearSearchQuery()">
+                清除关键词
+              </button>
+              <button
+                v-if="typeChip !== 'all' || sourceAppFilter || datePreset !== 'all'"
+                class="ghost-btn"
+                @click="clearAllFilters()"
+              >
+                清除筛选
+              </button>
+              <button class="secondary-btn" @click="exitSearchScene()">返回浏览</button>
+            </InlineActionGroup>
+          </div>
+
           <PanelStateView
             v-else-if="!hasItems && !loading"
             mode="empty"
-            :title="isSearchActive ? '没有匹配结果' : 'ClipMate 已就绪'"
-            :subtitle="isSearchActive ? '试试更换关键词或筛选条件' : '复制内容后将自动显示在这里'"
+            title="ClipMate 已就绪"
+            subtitle="复制内容后将自动显示在这里"
           />
 
-          <div v-else ref="historyCardsRef" class="cards-viewport" @scroll="onCardsScroll">
+          <div
+            v-else
+            ref="historyCardsRef"
+            class="cards-viewport"
+            :class="{ 'is-search-active': isSearchActive }"
+            @scroll="onCardsScroll"
+          >
             <div class="cards-track" :style="{ width: `${virtualTrackWidth}px` }">
               <ClipCard
                 v-for="(entry, index) in virtualCardEntries"
@@ -1472,7 +1704,7 @@ onBeforeUnmount(() => {
                 :title-html="entry.titleHtml"
                 :preview-html="entry.previewHtml"
                 :match-lines="entry.matchLines"
-                :search-mode="hasRemoteSearchQuery"
+                :search-mode="isSearchActive"
                 :app-icon-src="entry.appIconSrc"
                 :app-icon-alt="entry.appIconAlt"
                 :app-initial="entry.appInitial"
@@ -1534,13 +1766,14 @@ onBeforeUnmount(() => {
   flex-direction: column;
   height: 100vh;
   width: 100vw;
+  background: var(--bg-primary);
 }
 
 .app-content {
   flex: 1;
   display: flex;
   min-height: 0;
-  padding: 8px 18px 14px;
+  padding: 10px 18px 14px;
   -webkit-app-region: no-drag;
   position: relative;
 }
@@ -1562,6 +1795,39 @@ onBeforeUnmount(() => {
   overflow: hidden;
   min-height: 0;
   position: relative;
+  border-radius: 22px;
+  border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+  background: linear-gradient(180deg, var(--surface-panel-strong) 0%, var(--surface-panel) 100%);
+  box-shadow: var(--shadow-section);
+}
+
+.panel-scene-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 12px 0;
+}
+
+.panel-search-scene__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.panel-empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 24px;
+}
+
+.panel-empty-state__actions {
+  justify-content: center;
 }
 
 .cards-viewport {
@@ -1569,11 +1835,15 @@ onBeforeUnmount(() => {
   min-height: 0;
   width: 100%;
   max-width: 100%;
-  padding: 8px 12px 12px;
+  padding: 10px 12px 14px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
   scrollbar-width: none;
+}
+
+.cards-viewport.is-search-active {
+  padding-top: 12px;
 }
 
 .cards-viewport::-webkit-scrollbar {

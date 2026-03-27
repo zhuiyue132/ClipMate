@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import UiIcon from './components/UiIcon.vue'
+import ToastNotice from './components/panel/ToastNotice.vue'
+import PreviewContentSection from './components/preview/PreviewContentSection.vue'
+import PreviewFooterBar from './components/preview/PreviewFooterBar.vue'
+import PreviewHeaderBar from './components/preview/PreviewHeaderBar.vue'
+import PreviewMetaList from './components/preview/PreviewMetaList.vue'
+import PreviewShell from './components/preview/PreviewShell.vue'
+import FeedbackBanner from './components/shared/FeedbackBanner.vue'
+import InlineActionGroup from './components/shared/InlineActionGroup.vue'
 import type {
   ClipItem,
   HistoryMutationEvent,
@@ -91,6 +99,10 @@ function formatRelativeTime(ts: number): string {
   return `${day} 天前`
 }
 
+function formatDateTime(ts: number): string {
+  return new Date(ts).toLocaleString('zh-CN', { hour12: false })
+}
+
 const previewLinkMeta = computed(() => {
   const item = previewItem.value
   if (!item || item.type !== 'link' || !item.link_meta) return null
@@ -111,6 +123,7 @@ const previewBodyEditing = computed(() => {
   const type = previewItem.value?.type
   return editMode.value && isTextEditableType(type)
 })
+const previewSceneEditing = computed(() => previewBodyEditing.value || linkEditMode.value)
 
 function getFilePaths(item: ClipItem): string[] {
   if (item.type !== 'file') return []
@@ -124,6 +137,102 @@ function getFilePaths(item: ClipItem): string[] {
       .filter(Boolean)
   }
 }
+
+function defaultPreviewTitle(item: ClipItem): string {
+  if (item.type === 'link') return previewLinkMeta.value?.title || item.content
+  if (item.type === 'file') {
+    const count = getFilePaths(item).length
+    return count > 1 ? `${count} 个文件` : getFilePaths(item)[0] || '文件'
+  }
+  if (item.type === 'image') return item.title?.trim() || '图片条目'
+  if (item.type === 'color') return item.content
+  return item.plain_text?.trim()?.slice(0, 48) || item.content?.trim()?.slice(0, 48) || '未命名条目'
+}
+
+const previewDisplayTitle = computed(() => {
+  const item = previewItem.value
+  if (!item) return '预览'
+  return previewTitle.value || defaultPreviewTitle(item)
+})
+
+const previewHeaderSubtitle = computed(() => {
+  const item = previewItem.value
+  if (!item) return ''
+  return `${item.source_app_name || '未知来源'} · ${formatRelativeTime(item.created_at)}`
+})
+
+const previewModeLabel = computed(() => {
+  if (renameOpen.value) return '重命名'
+  if (previewSceneEditing.value) return '编辑中'
+  return '浏览'
+})
+
+const previewAccentLabel = computed(() => {
+  const item = previewItem.value
+  if (!item) return ''
+  if (item.type === 'image' && item.ocr_text) return 'OCR 已完成'
+  if (item.type === 'link' && previewLinkMeta.value?.description) return '含摘要'
+  if (item.type === 'file' && getFilePaths(item).length > 1) return '多文件'
+  if (item.type === 'color') return '可编辑'
+  return ''
+})
+
+const previewMetaRows = computed(() => {
+  const item = previewItem.value
+  if (!item) return []
+
+  const rows = [
+    {
+      key: 'source',
+      label: '来源应用',
+      value: item.source_app_name || item.source_app || '未知来源'
+    },
+    {
+      key: 'created',
+      label: '创建时间',
+      value: formatDateTime(item.created_at)
+    },
+    {
+      key: 'updated',
+      label: '更新时间',
+      value: formatDateTime(item.updated_at)
+    }
+  ]
+
+  if (item.type === 'link') {
+    rows.push({ key: 'url', label: '链接地址', value: item.content })
+  } else if (item.type === 'file') {
+    rows.push({
+      key: 'files',
+      label: '文件数量',
+      value: `${getFilePaths(item).length || 0}`
+    })
+  } else if (item.type === 'image') {
+    rows.push({
+      key: 'ocr',
+      label: 'OCR 状态',
+      value: item.ocr_text ? '已完成' : '后台处理中'
+    })
+  } else if (item.type === 'color') {
+    rows.push({ key: 'value', label: '颜色值', value: colorDraft.value })
+  }
+
+  return rows
+})
+
+const previewFooterHints = computed(() => {
+  const hints = ['空格 / ESC 关闭（输入时除外）']
+  if (editMode.value || linkEditMode.value) hints.push('⌘S 保存')
+  if (renameOpen.value) hints.push('回车保存名称')
+  if (!editMode.value && !linkEditMode.value) hints.push('回车直接粘贴')
+  if (previewItem.value?.type === 'image') hints.push('支持拖出图片')
+  return hints
+})
+
+const previewFilePaths = computed(() => {
+  const item = previewItem.value
+  return item ? getFilePaths(item) : []
+})
 
 function currentPreviewMode(): PreviewOpenMode {
   return editMode.value || linkEditMode.value ? 'edit' : 'view'
@@ -535,210 +644,349 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="preview-shell">
-    <div class="preview-window preview-window-standalone">
-      <div class="preview-header">
-        <div class="preview-left">
-          <div class="badge">
-            {{ previewItem ? typeLabel(previewItem.type) : '预览' }}
-          </div>
-          <div class="preview-meta">
-            <div v-if="previewTitle" class="preview-title">{{ previewTitle }}</div>
-            <div class="preview-sub">
-              {{
-                previewItem
-                  ? `${previewItem.source_app_name || '未知来源'} · ${formatRelativeTime(
-                      previewItem.created_at
-                    )}`
-                  : ''
-              }}
-            </div>
-          </div>
-        </div>
+  <PreviewShell>
+    <template #header>
+      <PreviewHeaderBar
+        :kind-label="previewItem ? typeLabel(previewItem.type) : '预览'"
+        :mode-label="previewModeLabel"
+        :title="previewDisplayTitle"
+        :subtitle="previewHeaderSubtitle"
+        :accent-label="previewAccentLabel"
+      >
+        <button class="icon-btn" title="复制" @click="copyPreview(true)">
+          <UiIcon name="copy" :size="18" :stroke-width="1.9" />
+        </button>
+        <button class="icon-btn" title="粘贴" @click="pastePreview(false)">
+          <UiIcon name="paste" :size="18" :stroke-width="1.9" />
+        </button>
+        <button
+          v-if="previewItem && (previewItem.type === 'text' || previewItem.type === 'richtext')"
+          class="icon-btn"
+          :class="{ active: editMode }"
+          title="编辑"
+          @click="toggleEdit()"
+        >
+          <UiIcon name="edit" :size="18" :stroke-width="1.9" />
+        </button>
+        <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">
+          <UiIcon name="save" :size="18" :stroke-width="1.9" />
+        </button>
+        <button
+          v-if="previewItem?.type === 'link'"
+          class="icon-btn"
+          :class="{ active: linkEditMode }"
+          title="编辑链接"
+          @click="toggleLinkEdit()"
+        >
+          <UiIcon name="link" :size="18" :stroke-width="1.9" />
+        </button>
+        <button v-if="linkEditMode" class="icon-btn" title="保存链接" @click="saveLinkEdit()">
+          <UiIcon name="save" :size="18" :stroke-width="1.9" />
+        </button>
+        <button
+          class="icon-btn"
+          :class="{ active: renameOpen }"
+          title="重命名"
+          @click="toggleRename()"
+        >
+          <UiIcon name="tag" :size="18" :stroke-width="1.9" />
+        </button>
+        <button class="icon-btn danger" title="删除" @click="deletePreviewItem()">
+          <UiIcon name="trash" :size="18" :stroke-width="1.9" />
+        </button>
+        <button class="icon-btn" title="关闭" @click="closePreviewWindow()">
+          <UiIcon name="close" :size="18" :stroke-width="1.9" />
+        </button>
+      </PreviewHeaderBar>
+    </template>
 
-        <div class="preview-actions">
-          <button class="icon-btn" title="复制" @click="copyPreview(true)">
-            <UiIcon name="copy" :size="18" :stroke-width="1.9" />
-          </button>
-          <button class="icon-btn" title="粘贴" @click="pastePreview(false)">
-            <UiIcon name="paste" :size="18" :stroke-width="1.9" />
-          </button>
-          <button
-            v-if="previewItem && (previewItem.type === 'text' || previewItem.type === 'richtext')"
-            class="icon-btn"
-            :class="{ active: editMode }"
-            title="编辑"
-            @click="toggleEdit()"
-          >
-            <UiIcon name="edit" :size="18" :stroke-width="1.9" />
-          </button>
-          <button v-if="editMode" class="icon-btn" title="保存" @click="saveTextEdit()">
-            <UiIcon name="save" :size="18" :stroke-width="1.9" />
-          </button>
-          <button
-            v-if="previewItem?.type === 'link'"
-            class="icon-btn"
-            :class="{ active: linkEditMode }"
-            title="编辑链接"
-            @click="toggleLinkEdit()"
-          >
-            <UiIcon name="link" :size="18" :stroke-width="1.9" />
-          </button>
-          <button v-if="linkEditMode" class="icon-btn" title="保存链接" @click="saveLinkEdit()">
-            <UiIcon name="save" :size="18" :stroke-width="1.9" />
-          </button>
-          <button
-            class="icon-btn"
-            :class="{ active: renameOpen }"
-            title="重命名"
-            @click="toggleRename()"
-          >
-            <UiIcon name="tag" :size="18" :stroke-width="1.9" />
-          </button>
-          <button class="icon-btn danger" title="删除" @click="deletePreviewItem()">
-            <UiIcon name="trash" :size="18" :stroke-width="1.9" />
-          </button>
-          <button class="icon-btn" title="关闭" @click="closePreviewWindow()">
-            <UiIcon name="close" :size="18" :stroke-width="1.9" />
-          </button>
-        </div>
+    <div class="preview-body" :class="{ 'preview-body-editing': previewSceneEditing }">
+      <div v-if="previewLoading" class="preview-loading-state">
+        <FeedbackBanner
+          tone="accent"
+          title="正在载入预览"
+          message="正在准备条目内容与操作状态。"
+          compact
+        />
       </div>
 
-      <div class="preview-body" :class="{ 'preview-body-editing': previewBodyEditing }">
-        <div v-if="previewLoading" class="preview-loading">加载中…</div>
-
-        <template v-else-if="previewItem">
-          <div v-if="renameOpen" class="rename-row">
+      <template v-else-if="previewItem">
+        <FeedbackBanner
+          v-if="renameOpen"
+          tone="accent"
+          compact
+          title="编辑名称"
+          message="名称只影响展示，不会改动原始剪贴板内容。"
+        >
+          <div class="preview-inline-editor">
             <input
               v-model="renameDraft"
-              class="rename-input"
+              class="rename-input preview-inline-editor__field"
               placeholder="名称（可选）"
               @keydown="onRenameInputKeyDown"
             />
-            <button class="primary-btn" @click="saveRename()">保存</button>
+            <InlineActionGroup align="end" class="preview-inline-editor__actions">
+              <button class="secondary-btn" @click="renameOpen = false">取消</button>
+              <button class="primary-btn" @click="saveRename()">保存名称</button>
+            </InlineActionGroup>
+          </div>
+        </FeedbackBanner>
+
+        <div class="preview-scene" :class="[`preview-scene--${previewItem.type}`]">
+          <div class="preview-scene__main">
+            <template v-if="previewItem.type === 'text' || previewItem.type === 'richtext'">
+              <PreviewContentSection
+                :eyebrow="previewItem.type === 'richtext' ? 'Rich Text' : 'Text'"
+                :title="editMode ? '编辑文本内容' : '文本预览'"
+                :description="editMode ? '你可以直接修改文本并保存。' : '当前条目的正文内容。'"
+                :tone="editMode ? 'accent' : 'default'"
+              >
+                <textarea
+                  v-if="editMode"
+                  ref="editAreaRef"
+                  v-model="editText"
+                  class="edit-area preview-editor-area"
+                ></textarea>
+                <pre v-else class="preview-text preview-rich-block">{{
+                  previewItem.plain_text || previewItem.content
+                }}</pre>
+              </PreviewContentSection>
+            </template>
+
+            <template v-else-if="previewItem.type === 'link'">
+              <PreviewContentSection
+                eyebrow="Link"
+                :title="linkEditMode ? '编辑链接地址' : '链接概览'"
+                :description="
+                  linkEditMode
+                    ? '更新地址后会保留同一条历史记录。'
+                    : '预览链接元数据与可嵌入的网页内容。'
+                "
+                :tone="linkEditMode ? 'accent' : 'default'"
+              >
+                <div
+                  v-if="linkEditMode"
+                  class="preview-inline-editor preview-inline-editor--stacked"
+                >
+                  <input
+                    ref="linkEditRef"
+                    v-model="linkDraft"
+                    class="rename-input preview-inline-editor__field"
+                    placeholder="https://example.com"
+                  />
+                  <InlineActionGroup align="end" class="preview-inline-editor__actions">
+                    <button class="secondary-btn" @click="toggleLinkEdit()">取消</button>
+                    <button class="primary-btn" @click="saveLinkEdit()">保存链接</button>
+                  </InlineActionGroup>
+                </div>
+
+                <div v-if="previewLinkMeta" class="link-meta-card preview-link-meta">
+                  <img
+                    v-if="previewLinkMeta.image"
+                    class="link-thumb"
+                    :src="previewLinkMeta.image"
+                    alt=""
+                  />
+                  <div class="link-meta-text">
+                    <div class="link-title">{{ previewLinkMeta.title || previewItem.content }}</div>
+                    <div class="preview-link-url">{{ previewItem.content }}</div>
+                    <div v-if="previewLinkMeta.description" class="link-desc">
+                      {{ previewLinkMeta.description }}
+                    </div>
+                  </div>
+                </div>
+                <div
+                  v-else
+                  class="feedback-banner feedback-banner--neutral feedback-banner--compact"
+                >
+                  <div class="feedback-banner__body">
+                    <div class="feedback-banner__title">链接元数据尚未完整</div>
+                    <div class="feedback-banner__message">仍可直接编辑、复制或粘贴该链接。</div>
+                  </div>
+                </div>
+              </PreviewContentSection>
+
+              <PreviewContentSection
+                eyebrow="Web"
+                title="网页预览"
+                description="嵌入式预览保持只读。"
+                compact
+              >
+                <webview class="webview" :src="previewItem.content"></webview>
+              </PreviewContentSection>
+            </template>
+
+            <template v-else-if="previewItem.type === 'image'">
+              <PreviewContentSection
+                eyebrow="Image"
+                title="图片预览"
+                description="支持旋转、拖出与文件粘贴。"
+              >
+                <div class="image-preview-lg preview-image-frame">
+                  <img
+                    :src="`data:image/png;base64,${previewItem.content}`"
+                    alt=""
+                    draggable="true"
+                    @dragstart="onItemDragStart($event, previewItem)"
+                  />
+                </div>
+
+                <template #footer>
+                  <InlineActionGroup align="start">
+                    <button class="tool-btn" @click="rotateImage('left')">向左旋转</button>
+                    <button class="tool-btn" @click="rotateImage('right')">向右旋转</button>
+                    <button class="tool-btn" @click="pasteImageAsFile(previewItem.id)">
+                      作为文件粘贴
+                    </button>
+                  </InlineActionGroup>
+                </template>
+              </PreviewContentSection>
+
+              <PreviewContentSection
+                eyebrow="OCR"
+                title="文字识别"
+                :description="
+                  previewItem.ocr_text
+                    ? '识别结果已就绪，可直接复制或转为文本条目。'
+                    : 'OCR 在后台进行，完成后会自动刷新。'
+                "
+                :tone="previewItem.ocr_text ? 'accent' : 'muted'"
+              >
+                <pre v-if="previewItem.ocr_text" class="ocr-text">{{ previewItem.ocr_text }}</pre>
+                <div v-else class="ocr-empty">后台识别完成后会显示在这里</div>
+
+                <template #footer>
+                  <InlineActionGroup align="start">
+                    <button
+                      class="primary-btn"
+                      :disabled="!previewItem.ocr_text"
+                      @click="extractOcr('copy')"
+                    >
+                      复制文字
+                    </button>
+                    <button
+                      class="tool-btn"
+                      :disabled="!previewItem.ocr_text"
+                      @click="extractOcr('create')"
+                    >
+                      转为文本条目
+                    </button>
+                  </InlineActionGroup>
+                </template>
+              </PreviewContentSection>
+            </template>
+
+            <template v-else-if="previewItem.type === 'color'">
+              <PreviewContentSection
+                eyebrow="Color"
+                title="颜色样本"
+                description="保存后会更新该颜色条目的内容。"
+                tone="accent"
+              >
+                <div class="color-preview-lg" :style="{ background: colorDraft }">
+                  <div class="color-value">{{ colorDraft }}</div>
+                </div>
+
+                <template #footer>
+                  <InlineActionGroup align="start">
+                    <input v-model="colorDraft" type="color" class="color-input" />
+                    <button class="primary-btn" @click="saveColor()">保存颜色</button>
+                  </InlineActionGroup>
+                </template>
+              </PreviewContentSection>
+            </template>
+
+            <template v-else-if="previewItem.type === 'file'">
+              <PreviewContentSection
+                eyebrow="Files"
+                :title="
+                  previewFilePaths.length > 1 ? `${previewFilePaths.length} 个文件` : '文件预览'
+                "
+                description="支持逐项 Quick Look。"
+              >
+                <div class="file-list">
+                  <div v-for="path in previewFilePaths" :key="path" class="file-row">
+                    <span>{{ path }}</span>
+                    <button class="tool-btn small" @click="quickLook(path)">Quick Look</button>
+                  </div>
+                </div>
+              </PreviewContentSection>
+            </template>
           </div>
 
-          <template v-if="previewItem.type === 'text' || previewItem.type === 'richtext'">
-            <textarea
-              v-if="editMode"
-              ref="editAreaRef"
-              v-model="editText"
-              class="edit-area"
-            ></textarea>
-            <pre v-else class="preview-text">{{
-              previewItem.plain_text || previewItem.content
-            }}</pre>
-          </template>
+          <aside class="preview-scene__side">
+            <PreviewContentSection
+              eyebrow="Metadata"
+              title="条目详情"
+              description="来源、时间与类型相关信息。"
+              tone="muted"
+              compact
+            >
+              <PreviewMetaList :rows="previewMetaRows" />
+            </PreviewContentSection>
 
-          <template v-else-if="previewItem.type === 'link'">
-            <div v-if="linkEditMode" class="rename-row">
-              <input
-                ref="linkEditRef"
-                v-model="linkDraft"
-                class="rename-input"
-                placeholder="https://example.com"
-              />
-              <button class="primary-btn" @click="saveLinkEdit()">保存链接</button>
-            </div>
-            <div v-if="previewLinkMeta" class="link-meta-card">
-              <img
-                v-if="previewLinkMeta.image"
-                class="link-thumb"
-                :src="previewLinkMeta.image"
-                alt=""
-              />
-              <div class="link-meta-text">
-                <div class="link-title">{{ previewLinkMeta.title || previewItem.content }}</div>
-                <div v-if="previewLinkMeta.description" class="link-desc">
-                  {{ previewLinkMeta.description }}
-                </div>
-              </div>
-            </div>
-            <webview class="webview" :src="previewItem.content"></webview>
-          </template>
-
-          <template v-else-if="previewItem.type === 'image'">
-            <div class="image-preview-lg">
-              <img
-                :src="`data:image/png;base64,${previewItem.content}`"
-                alt=""
-                draggable="true"
-                @dragstart="onItemDragStart($event, previewItem)"
-              />
-            </div>
-            <div class="image-tools">
-              <button class="tool-btn" @click="rotateImage('left')">⟲</button>
-              <button class="tool-btn" @click="rotateImage('right')">⟳</button>
-              <button class="tool-btn" @click="pasteImageAsFile(previewItem.id)">文件粘贴</button>
-            </div>
-            <div class="ocr-card">
-              <div class="ocr-head">
-                <span>OCR 识别</span>
-                <span class="hint">{{ previewItem.ocr_text ? '已完成' : '识别中…' }}</span>
-              </div>
-              <pre v-if="previewItem.ocr_text" class="ocr-text">{{ previewItem.ocr_text }}</pre>
-              <div v-else class="ocr-empty">后台识别完成后会显示在这里</div>
-              <div class="ocr-actions">
+            <PreviewContentSection
+              eyebrow="Actions"
+              title="常用操作"
+              description="保持不同类型条目的动作层级一致。"
+              compact
+            >
+              <InlineActionGroup align="start" class="preview-side-actions">
+                <button class="ghost-btn" @click="copyPreview(true)">复制文本</button>
+                <button class="ghost-btn" @click="pastePreview(false)">直接粘贴</button>
                 <button
-                  class="primary-btn"
-                  :disabled="!previewItem.ocr_text"
-                  @click="extractOcr('copy')"
+                  v-if="previewItem.type === 'image'"
+                  class="ghost-btn"
+                  @click="pasteImageAsFile(previewItem.id)"
                 >
-                  复制文字
+                  粘贴为文件
                 </button>
                 <button
-                  class="tool-btn"
-                  :disabled="!previewItem.ocr_text"
-                  @click="extractOcr('create')"
+                  v-if="previewItem.type === 'link'"
+                  class="ghost-btn"
+                  @click="toggleLinkEdit()"
                 >
-                  转为文本条目
+                  {{ linkEditMode ? '结束编辑' : '编辑链接' }}
                 </button>
-              </div>
-            </div>
-          </template>
-
-          <template v-else-if="previewItem.type === 'color'">
-            <div class="color-preview-lg" :style="{ background: colorDraft }">
-              <div class="color-value">{{ colorDraft }}</div>
-            </div>
-            <div class="color-tools">
-              <input v-model="colorDraft" type="color" class="color-input" />
-              <button class="primary-btn" @click="saveColor()">保存</button>
-            </div>
-          </template>
-
-          <template v-else-if="previewItem.type === 'file'">
-            <div class="file-list">
-              <div v-for="path in getFilePaths(previewItem)" :key="path" class="file-row">
-                <span>{{ path }}</span>
-                <button class="tool-btn small" @click="quickLook(path)">Quick Look</button>
-              </div>
-            </div>
-          </template>
-        </template>
-      </div>
-
-      <div class="preview-footer">
-        <span class="hint">空格 / ESC 关闭（输入时除外）</span>
-        <span v-if="editMode || linkEditMode" class="hint">⌘S 保存</span>
-        <span v-if="renameOpen" class="hint">回车保存名称</span>
-        <span v-else-if="!editMode && !linkEditMode" class="hint">回车直接粘贴</span>
-      </div>
+                <button
+                  v-if="previewItem.type === 'text' || previewItem.type === 'richtext'"
+                  class="ghost-btn"
+                  @click="toggleEdit()"
+                >
+                  {{ editMode ? '结束编辑' : '编辑文本' }}
+                </button>
+              </InlineActionGroup>
+            </PreviewContentSection>
+          </aside>
+        </div>
+      </template>
     </div>
 
-    <div v-if="toast" class="toast preview-toast">{{ toast }}</div>
-  </div>
+    <template #footer>
+      <PreviewFooterBar :hints="previewFooterHints">
+        <template #actions>
+          <button v-if="renameOpen" class="primary-btn compact" @click="saveRename()">
+            保存名称
+          </button>
+          <button v-else-if="editMode" class="primary-btn compact" @click="saveTextEdit()">
+            保存文本
+          </button>
+          <button v-else-if="linkEditMode" class="primary-btn compact" @click="saveLinkEdit()">
+            保存链接
+          </button>
+          <button v-else class="secondary-btn compact" @click="closePreviewWindow()">关闭</button>
+        </template>
+      </PreviewFooterBar>
+    </template>
+
+    <template #feedback>
+      <ToastNotice v-if="toast" :message="toast" />
+    </template>
+  </PreviewShell>
 </template>
 
 <style>
-html,
-body,
-#app {
-  width: 100%;
-  height: 100%;
-}
-
-.preview-shell {
+.preview-shell--native {
   position: relative;
   width: 100vw;
   height: 100vh;
@@ -747,7 +995,7 @@ body,
   min-height: 0;
 }
 
-.preview-window-standalone {
+.preview-shell__window {
   width: 100%;
   height: 100%;
   display: flex;
@@ -755,49 +1003,191 @@ body,
   min-height: 0;
 }
 
+.preview-shell__content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.preview-shell__feedback {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.preview-shell__feedback .toast {
+  pointer-events: auto;
+}
+
 .preview-window-standalone .preview-header {
   -webkit-app-region: drag;
 }
 
-.preview-window-standalone .preview-actions {
+.preview-window-standalone .preview-actions,
+.preview-window-standalone .preview-footer,
+.preview-window-standalone .preview-body,
+.preview-window-standalone .preview-shell__content {
   -webkit-app-region: no-drag;
 }
 
-.preview-window-standalone .preview-body {
-  flex: 1;
-  min-height: 0;
+.preview-header--native {
+  align-items: flex-start;
 }
 
-.preview-window-standalone .preview-body.preview-body-editing {
-  overflow: hidden;
-}
-
-.preview-window-standalone .edit-area {
-  flex: 1;
-  min-height: 0;
-  height: auto;
-}
-
-.preview-meta {
+.preview-header__summary,
+.preview-header__meta {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 8px;
 }
 
-.preview-title {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.25;
-  color: var(--text-primary);
+.preview-header__badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preview-header__title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.preview-toast {
-  position: fixed;
-  left: 12px;
-  bottom: 12px;
+.preview-header__subtitle {
+  max-width: 100%;
+}
+
+.preview-header__actions {
+  max-width: min(44vw, 420px);
+}
+
+.preview-loading-state {
+  width: 100%;
+}
+
+.preview-inline-editor {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.preview-inline-editor--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.preview-inline-editor__field {
+  flex: 1;
+}
+
+.preview-inline-editor__actions {
+  flex: 0 0 auto;
+}
+
+.preview-scene {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.9fr);
+  gap: 14px;
+}
+
+.preview-scene__main,
+.preview-scene__side {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.preview-rich-block {
+  min-height: 220px;
+}
+
+.preview-editor-area {
+  flex: 1;
+  min-height: 280px;
+}
+
+.preview-link-meta {
+  align-items: stretch;
+}
+
+.preview-link-url {
+  font-size: var(--font-footnote);
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  word-break: break-all;
+}
+
+.preview-image-frame {
+  min-height: 260px;
+}
+
+.preview-side-actions {
+  align-items: flex-start;
+}
+
+.preview-footer--native {
+  align-items: center;
+}
+
+.preview-footer__hints {
+  min-width: 0;
+  flex: 1;
+}
+
+.preview-footer__hint {
+  max-width: 100%;
+}
+
+.preview-footer__actions {
+  flex: 0 0 auto;
+}
+
+@media (max-width: 1080px) {
+  .preview-scene {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-header__actions {
+    max-width: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .preview-shell--native {
+    padding: 8px;
+  }
+
+  .preview-header,
+  .preview-footer,
+  .preview-body {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .preview-footer--native,
+  .preview-header--native {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .preview-header__actions,
+  .preview-footer__actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .webview {
+    min-height: 280px;
+  }
 }
 </style>
