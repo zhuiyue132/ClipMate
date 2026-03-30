@@ -60,6 +60,12 @@
       "area": "renderer",
       "files": [
         "src/renderer/src/App.vue",
+        "src/renderer/src/panel/MainPanelView.vue",
+        "src/renderer/src/panel/usePanelFeed.ts",
+        "src/renderer/src/panel/usePanelQueryState.ts",
+        "src/renderer/src/panel/usePanelSearchResults.ts",
+        "src/renderer/src/panel/usePanelSelection.ts",
+        "src/renderer/src/panel/useVirtualCardStrip.ts",
         "src/renderer/src/PreviewView.vue",
         "src/renderer/src/SettingsView.vue",
         "src/renderer/src/StackDockView.vue"
@@ -82,10 +88,15 @@
       "src/main/database/index.ts",
       "src/main/database/clipItems.ts",
       "src/main/clipboard/io.ts",
-      "src/renderer/src/App.vue",
+      "src/renderer/src/panel/MainPanelView.vue",
       "src/renderer/src/PreviewView.vue"
     ],
-    "search_or_filters": ["src/main/database/clipItems.ts", "src/renderer/src/App.vue"],
+    "search_or_filters": [
+      "src/main/database/clipItems.ts",
+      "src/renderer/src/panel/MainPanelView.vue",
+      "src/renderer/src/panel/usePanelQueryState.ts",
+      "src/renderer/src/panel/usePanelSearchResults.ts"
+    ],
     "shortcut_changes": [
       "src/shared/types.ts",
       "src/main/settings/store.ts",
@@ -96,7 +107,8 @@
       "src/main/index.ts",
       "src/main/panelSnapshot.ts",
       "src/main/events.ts",
-      "src/renderer/src/App.vue",
+      "src/renderer/src/panel/MainPanelView.vue",
+      "src/renderer/src/panel/useVirtualCardStrip.ts",
       "src/main/smoke/panelFlow.ts"
     ],
     "release_pipeline": [
@@ -133,7 +145,7 @@
   "importantConstraints": [
     "macOS-only implementation",
     "paste and app switching rely on osascript/open commands",
-    "renderer main panel logic is concentrated in App.vue",
+    "renderer App.vue is now a route shell; main panel coordination lives in src/renderer/src/panel/MainPanelView.vue and src/renderer/src/panel/*",
     "renderer UI icons use @tabler/icons-vue via src/renderer/src/components/UiIcon.vue, while source app icons are still fetched dynamically via system:getAppIcons",
     "app icon and active tray icon assets are generated from build/iconset-source/clipmate.iconset via build/prepare-icons.mjs, while the paused tray icon is a fixed project asset at build/tray/clipmate-tray-paused.png",
     "auto update only works in packaged app",
@@ -146,7 +158,7 @@
     "iCloud sync conflict handling is last-write-wins only"
   ],
   "openspecState": {
-    "hasActiveChange": false,
-    "note": "Only archived changes were found under openspec/changes."
+    "hasActiveChange": true,
+    "note": "An active change exists at openspec/changes/split-main-panel-state-coordinator."
   }
 }

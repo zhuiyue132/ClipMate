@@ -20,7 +20,9 @@
 - 设置持久化与默认值：`src/main/settings/store.ts`
 - 全局快捷键注册：`src/main/shortcuts.ts`
 - 主面板窗口动画与定位：`src/main/windows/mainWindow.ts`
-- 渲染层主界面：`src/renderer/src/App.vue`
+- 渲染层 route shell：`src/renderer/src/App.vue`
+- 主面板承载视图：`src/renderer/src/panel/MainPanelView.vue`
+- 主面板状态模块：`src/renderer/src/panel/*`
 - 设置页：`src/renderer/src/SettingsView.vue`
 - 预览页：`src/renderer/src/PreviewView.vue`
 
@@ -38,7 +40,7 @@
 
 1. 主窗口呼出前，`showMainWindowFromCurrentApp()` 会记录前台 App、构建 `PanelSnapshot`、发送性能 mark。
 2. `buildPanelSnapshot()` 当前会直接取最近 `200` 条历史 + source apps + Paste Stack 状态。
-3. Renderer 在 `App.vue` 中接收 `window:preparePanelShow` 和 `history:mutation`，优先增量更新，再在必要时全量刷新。
+3. Renderer 现在由 `App.vue` 做 route shell，主面板默认路由在 `MainPanelView.vue` 中接收 `window:preparePanelShow` 和 `history:mutation`，并通过 `src/renderer/src/panel/*` 的 feed/query/search/selection/virtual-strip 模块组织状态。
 4. 历史列表不是传统纵向列表，而是横向卡片流，并做了简单虚拟化。
 
 ### 3.3 直接粘贴链路
@@ -93,7 +95,7 @@
 ### 5.2 改搜索、筛选、预览摘要
 
 - 搜索 SQL / FTS / summary 逻辑都在 `src/main/database/clipItems.ts`
-- 面板搜索交互和筛选状态主要在 `src/renderer/src/App.vue`
+- 面板搜索交互和筛选状态主要在 `src/renderer/src/panel/MainPanelView.vue`、`src/renderer/src/panel/usePanelQueryState.ts`、`src/renderer/src/panel/usePanelSearchResults.ts`
 
 ### 5.3 改快捷键
 
@@ -106,7 +108,7 @@
 
 - 主进程首屏快照：`src/main/panelSnapshot.ts`
 - 性能事件：`src/main/index.ts` + `src/main/events.ts`
-- 虚拟列表和卡片渲染：`src/renderer/src/App.vue`
+- 虚拟列表和卡片渲染：`src/renderer/src/panel/MainPanelView.vue` + `src/renderer/src/panel/useVirtualCardStrip.ts`
 - 冒烟回归：`src/main/smoke/panelFlow.ts`（现覆盖主面板基础流、预览编辑，以及图片 OCR 提取 copy/create）
 
 ### 5.5 改预览窗口或多窗口行为
@@ -134,7 +136,7 @@
 ## 6. 当前工程上最值得记住的事实
 
 - 平台强绑定 macOS。很多核心能力依赖 `osascript`、`open -b`、Vision OCR、Quick Look 和菜单栏行为。
-- 渲染层主面板高度集中在 `src/renderer/src/App.vue`，文件已超过 `3k` 行。改动这里时要优先控制范围，避免顺手继续堆逻辑。
+- `App.vue` 现在主要负责 renderer route shell；主面板 coordinator 已迁到 `src/renderer/src/panel/MainPanelView.vue`，搜索、feed、selection、virtual-strip 等状态进一步拆到 `src/renderer/src/panel/*`。
 - Main/Renderer 的稳定边界不是组件，而是 `src/shared/types.ts` + `src/preload/index.ts` 暴露的 IPC API。
 - 主面板首屏为了性能，采用“先 snapshot 再 reconcile clipboard”的模式，不是每次展示时都等完整刷新。
 - 数据层已经有 FTS 和 summary 预处理，不要在 Renderer 重复做重搜索或大字段转换。
@@ -143,7 +145,7 @@
 ## 7. 当前高风险/高价值关注点
 
 - 自动化测试体系还不完整。仓库主要依赖 `typecheck`、`lint` 和可选的 panel smoke test。
-- `App.vue` 是明显的维护热点，继续增量功能时应优先考虑拆分状态和交互职责。
+- 主面板后续改动应优先落在 `src/renderer/src/panel/*` 的对应状态模块，避免重新把 coordinator 逻辑堆回 `App.vue` 或 `MainPanelView.vue`。
 - 屏幕共享隐藏、签名、公证、自动更新等发布能力在文档中已说明仍需真实环境验证，不能只看仓库代码就视为 fully done。
 - OCR 在开发态依赖本机 `swift` 或预编译 helper；本地环境缺失时功能会静默不可用。
 - 自动更新只在打包版可用，开发态无法真实验证。
@@ -173,10 +175,10 @@ CLIPMATE_SMOKE_TEST=1 electron-vite preview
 - PRD：`docs/prd.md`
 - 进度与复核待办：`docs/todo.md`
 - 发布说明：`docs/release.md`
-- OpenSpec 当前没有活跃 change，只有 `openspec/specs/*` 和 `openspec/changes/archive/*` 历史记录。
+- OpenSpec 当前有活跃 change：`split-main-panel-state-coordinator`
 
 ## 10. 后续协作建议
 
-- 新需求先判断是否触及 `shared types + preload + ipc + database + App.vue` 这一整条链，很多功能看似 UI 改动，实际会跨边界。
+- 新需求先判断是否触及 `shared types + preload + ipc + database + src/renderer/src/panel/*` 这一整条链，很多功能看似 UI 改动，实际会跨边界。
 - 任何涉及粘贴、快捷键、前台应用切换的改动，都要以真实 macOS 行为为准，不能只依赖逻辑阅读。
 - 任何涉及发布、权限、更新、OCR 的结论，都应区分“仓库内已接线”与“真实环境已验证”。
