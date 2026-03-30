@@ -32,6 +32,7 @@ let burstTimeoutId: NodeJS.Timeout | null = null
 let burstResolve: (() => void) | null = null
 const pasteStack = new PasteStackManager(notifyStackChanged)
 const clipboardStateListeners = new Set<(paused: boolean) => void>()
+const WEBSITE_SCREENSHOT_CAPTURE_ENABLED = process.env.CLIPMATE_SITE_SCREENSHOTS === '1'
 
 function broadcastHistoryUpsertById(
   id: string,
@@ -50,6 +51,7 @@ function notifyStackChanged(): void {
 }
 
 function showPasteStackEnabledNotification(): void {
+  if (WEBSITE_SCREENSHOT_CAPTURE_ENABLED) return
   if (!Notification.isSupported()) return
 
   new Notification({
@@ -60,6 +62,7 @@ function showPasteStackEnabledNotification(): void {
 }
 
 function showPasteStackDisabledNotification(): void {
+  if (WEBSITE_SCREENSHOT_CAPTURE_ENABLED) return
   if (!Notification.isSupported()) return
 
   new Notification({

@@ -29,6 +29,7 @@ import { startLinkMetaWorker, stopLinkMetaWorker } from './linkMeta'
 import { buildPanelSnapshot } from './panelSnapshot'
 import { broadcastPanelPerformanceMark } from './events'
 import { runPanelSmokeTest } from './smoke/panelFlow'
+import { runWebsiteScreenshotCapture } from './smoke/siteScreenshots'
 import { runOcrFixtureVerificationCli } from './ocr/verification'
 import {
   configurePasteStackPasteShortcut,
@@ -61,6 +62,7 @@ let tray: Tray | null = null
 let pendingShowRequestId = 0
 const SMOKE_TEST_ENABLED = process.env.CLIPMATE_SMOKE_TEST === '1'
 const OCR_FIXTURE_VERIFY_ENABLED = process.env.CLIPMATE_OCR_FIXTURE_VERIFY === '1'
+const WEBSITE_SCREENSHOT_CAPTURE_ENABLED = process.env.CLIPMATE_SITE_SCREENSHOTS === '1'
 
 function emitPanelPerformanceMark(
   requestId: number,
@@ -275,7 +277,21 @@ app.whenReady().then(() => {
   startOcrWorker()
   startLinkMetaWorker()
 
-  if (SMOKE_TEST_ENABLED) {
+  if (WEBSITE_SCREENSHOT_CAPTURE_ENABLED) {
+    setTimeout(() => {
+      void runWebsiteScreenshotCapture({
+        openPanel: showMainWindowFromCurrentApp,
+        getMainWindow
+      })
+        .then(() => {
+          app.exit(0)
+        })
+        .catch((error) => {
+          console.error('[screenshots] website screenshot capture failed', error)
+          app.exit(1)
+        })
+    }, 700)
+  } else if (SMOKE_TEST_ENABLED) {
     setTimeout(() => {
       void runPanelSmokeTest({
         openPanel: showMainWindowFromCurrentApp,

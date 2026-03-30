@@ -1,0 +1,71 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { pageHref, siteMeta } from '../config/site'
+---
+
+<BaseLayout title="下载" description="下载 ClipMate 最新版本，并查看安装说明与系统要求。" currentPath="/download/">
+  <section class="section page-hero">
+    <div class="container section-copy narrow-copy">
+      <p class="eyebrow">下载</p>
+      <h1>下载 ClipMate</h1>
+      <p>
+        ClipMate 是一款面向 macOS 的本地优先剪贴板管理工具。你可以通过 GitHub Releases 下载最新可用版本。
+      </p>
+      <div class="button-row">
+        <a class="button button-primary" href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">
+          前往最新版本下载
+        </a>
+        <a class="button button-secondary" href={siteMeta.releasesUrl} target="_blank" rel="noreferrer">
+          查看所有发行版本
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section section-soft">
+    <div class="container two-column-grid">
+      <article class="surface-card info-card">
+        <h2>系统要求</h2>
+        <ul class="bullet-list" role="list">
+          <li>仅支持 macOS</li>
+          <li>建议使用较新的 macOS 版本</li>
+          <li>当前提供通用构建包</li>
+        </ul>
+      </article>
+
+      <article class="surface-card info-card">
+        <h2>安装步骤</h2>
+        <ol class="steps-list">
+          <li>下载最新 DMG 安装包</li>
+          <li>将 ClipMate 拖入 Applications</li>
+          <li>首次启动后按系统提示完成授权</li>
+          <li>如需自动粘贴，请授予辅助功能权限</li>
+        </ol>
+      </article>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container two-column-grid">
+      <article class="surface-card info-card">
+        <h2>首次使用建议</h2>
+        <ul class="bullet-list" role="list">
+          <li>设置主快捷键</li>
+          <li>确认是否开启历史收集</li>
+          <li>配置应用排除列表</li>
+          <li>按需启用 iCloud Drive 同步</li>
+        </ul>
+      </article>
+
+      <article class="surface-card info-card">
+        <h2>相关链接</h2>
+        <ul class="bullet-list" role="list">
+          <li><a href={siteMeta.repoUrl} target="_blank" rel="noreferrer">GitHub 仓库</a></li>
+          <li><a href={siteMeta.releasesUrl} target="_blank" rel="noreferrer">Releases</a></li>
+          <li><a href={pageHref('/privacy/')}>隐私说明</a></li>
+          <li><a href={pageHref('/faq/')}>FAQ</a></li>
+        </ul>
+      </article>
+    </div>
+  </section>
+</BaseLayout>

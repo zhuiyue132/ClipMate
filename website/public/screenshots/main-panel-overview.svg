@@ -1,0 +1,50 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 980' fill='none'>
+  <defs>
+    <linearGradient id='bg' x1='180' x2='1380' y1='120' y2='860' gradientUnits='userSpaceOnUse'>
+      <stop stop-color='#16203a'/>
+      <stop offset='1' stop-color='#0b1220'/>
+    </linearGradient>
+    <linearGradient id='card' x1='280' x2='1320' y1='240' y2='820' gradientUnits='userSpaceOnUse'>
+      <stop stop-color='#182644'/>
+      <stop offset='1' stop-color='#0f1729'/>
+    </linearGradient>
+  </defs>
+  <rect width='1600' height='980' rx='56' fill='#050914'/>
+  <rect x='92' y='76' width='1416' height='828' rx='40' fill='url(#bg)' stroke='#26324d' stroke-width='2'/>
+  <circle cx='152' cy='134' r='12' fill='#ff5f57'/>
+  <circle cx='188' cy='134' r='12' fill='#febc2e'/>
+  <circle cx='224' cy='134' r='12' fill='#28c840'/>
+  <text x='800' y='143' fill='#b8c5e3' font-size='28' font-family='Inter, sans-serif' text-anchor='middle'>ClipMate · 主面板</text>
+  <rect x='132' y='184' width='1320' height='86' rx='28' fill='#0a1325' stroke='#22304b'/>
+  <rect x='162' y='208' width='160' height='38' rx='19' fill='#1a2b49'/>
+  <text x='242' y='233' fill='#d7e4ff' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>全部类型</text>
+  <rect x='346' y='208' width='622' height='38' rx='19' fill='#10192b' stroke='#243551'/>
+  <text x='386' y='233' fill='#7f93b9' font-size='21' font-family='Inter, sans-serif'>搜索复制内容、OCR 或链接…</text>
+  <rect x='1246' y='208' width='90' height='38' rx='19' fill='#111b2f'/>
+  <rect x='1354' y='208' width='68' height='38' rx='19' fill='#111b2f'/>
+  <rect x='132' y='306' width='402' height='520' rx='32' fill='url(#card)' stroke='#253554'/>
+  <rect x='568' y='306' width='402' height='520' rx='32' fill='url(#card)' stroke='#4967b8' stroke-width='3'/>
+  <rect x='1004' y='306' width='402' height='520' rx='32' fill='url(#card)' stroke='#253554'/>
+  <rect x='170' y='342' width='70' height='70' rx='22' fill='#1f3257'/>
+  <rect x='606' y='342' width='70' height='70' rx='22' fill='#29457c'/>
+  <rect x='1042' y='342' width='70' height='70' rx='22' fill='#3f2842'/>
+  <text x='262' y='373' fill='#e7efff' font-size='30' font-family='Inter, sans-serif'>周会纪要</text>
+  <text x='698' y='373' fill='#ffffff' font-size='30' font-family='Inter, sans-serif'>Landing Page 文案</text>
+  <text x='1134' y='373' fill='#f5ebff' font-size='30' font-family='Inter, sans-serif'>https://clipmate.app</text>
+  <text x='170' y='464' fill='#96a9cb' font-size='24' font-family='Inter, sans-serif'>• 自动捕获文本、链接、图片、文件与颜色</text>
+  <text x='170' y='506' fill='#96a9cb' font-size='24' font-family='Inter, sans-serif'>• 双击直接粘贴回前台应用</text>
+  <text x='170' y='548' fill='#96a9cb' font-size='24' font-family='Inter, sans-serif'>• OCR 与搜索索引保持同步</text>
+  <text x='606' y='464' fill='#d9e6ff' font-size='24' font-family='Inter, sans-serif'>Hero：本地优先的 macOS 剪贴板管理器</text>
+  <text x='606' y='506' fill='#b2c4ea' font-size='24' font-family='Inter, sans-serif'>副标题：保存你复制过的一切，随时找回。</text>
+  <text x='606' y='548' fill='#b2c4ea' font-size='24' font-family='Inter, sans-serif'>CTA：下载 Mac 版 / 查看 GitHub</text>
+  <rect x='606' y='608' width='154' height='46' rx='23' fill='#5b7ef7'/>
+  <text x='683' y='637' fill='white' font-size='22' font-family='Inter, sans-serif' text-anchor='middle'>下载</text>
+  <rect x='780' y='608' width='180' height='46' rx='23' fill='#15243f'/>
+  <text x='870' y='637' fill='#d8e4ff' font-size='22' font-family='Inter, sans-serif' text-anchor='middle'>查看 GitHub</text>
+  <rect x='1042' y='446' width='324' height='210' rx='28' fill='#121b2d' stroke='#2a3a59'/>
+  <rect x='1076' y='480' width='258' height='20' rx='10' fill='#243552'/>
+  <rect x='1076' y='520' width='210' height='18' rx='9' fill='#1b2a43'/>
+  <rect x='1076' y='556' width='232' height='18' rx='9' fill='#1b2a43'/>
+  <rect x='1076' y='592' width='168' height='18' rx='9' fill='#1b2a43'/>
+  <text x='132' y='868' fill='#7f93b9' font-size='22' font-family='Inter, sans-serif'>横向卡片流 · 实时搜索 · 直接粘贴</text>
+</svg>

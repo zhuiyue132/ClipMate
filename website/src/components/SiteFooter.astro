@@ -1,0 +1,44 @@
+---
+import { assetHref, faqItems, pageHref, siteMeta } from '../config/site'
+const year = new Date().getFullYear()
+---
+
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div>
+      <a href={pageHref('/')} class="brand-mark footer-brand">
+        <img src={assetHref('icon_512x512@2x.png')} alt="ClipMate 标志" width="40" height="40" />
+        <span>{siteMeta.name}</span>
+      </a>
+      <p class="footer-copy">本地优先的 macOS 剪贴板管理器。</p>
+    </div>
+
+    <div>
+      <h2>页面</h2>
+      <ul>
+        <li><a href={pageHref('/download/')}>下载</a></li>
+        <li><a href={pageHref('/privacy/')}>隐私</a></li>
+        <li><a href={pageHref('/faq/')}>FAQ</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h2>链接</h2>
+      <ul>
+        <li><a href={siteMeta.repoUrl} target="_blank" rel="noreferrer">GitHub 仓库</a></li>
+        <li><a href={siteMeta.releasesUrl} target="_blank" rel="noreferrer">Releases</a></li>
+        <li><a href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">下载最新版</a></li>
+      </ul>
+    </div>
+
+    <div>
+      <h2>常见问题</h2>
+      <p class="footer-copy">{faqItems[0]?.question}</p>
+      <p class="footer-copy">{faqItems[0]?.answer}</p>
+    </div>
+  </div>
+  <div class="container footer-bottom">
+    <span>© {year} ClipMate</span>
+    <span>Built for GitHub Pages</span>
+  </div>
+</footer>

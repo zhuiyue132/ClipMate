@@ -1,0 +1,35 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { faqItems, siteMeta } from '../config/site'
+---
+
+<BaseLayout title="FAQ" description="查看 ClipMate 的常见问题，包括权限、OCR、同步与下载方式。" currentPath="/faq/">
+  <section class="section page-hero">
+    <div class="container section-copy narrow-copy">
+      <p class="eyebrow">FAQ</p>
+      <h1>常见问题</h1>
+      <p>这里收集了关于平台支持、权限、OCR、同步和下载方式的常见问题。</p>
+    </div>
+  </section>
+
+  <section class="section section-soft">
+    <div class="container faq-list">
+      {
+        faqItems.map((item) => (
+          <details class="surface-card faq-detail">
+            <summary>{item.question}</summary>
+            <p>{item.answer}</p>
+          </details>
+        ))
+      }
+      <article class="surface-card info-card faq-cta">
+        <h2>还有别的问题？</h2>
+        <p>你也可以直接在 GitHub 仓库查看发布记录、提交 issue，或下载最新版本进行体验。</p>
+        <div class="button-row">
+          <a class="button button-primary" href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">下载最新版</a>
+          <a class="button button-secondary" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">查看 GitHub</a>
+        </div>
+      </article>
+    </div>
+  </section>
+</BaseLayout>

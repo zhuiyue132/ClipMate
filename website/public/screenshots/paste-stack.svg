@@ -1,0 +1,35 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 980' fill='none'>
+  <defs>
+    <linearGradient id='bg5' x1='160' x2='1440' y1='120' y2='860' gradientUnits='userSpaceOnUse'>
+      <stop stop-color='#15213c'/>
+      <stop offset='1' stop-color='#0a1323'/>
+    </linearGradient>
+  </defs>
+  <rect width='1600' height='980' rx='56' fill='#050914'/>
+  <rect x='100' y='86' width='1400' height='808' rx='40' fill='url(#bg5)' stroke='#25334e' stroke-width='2'/>
+  <circle cx='160' cy='144' r='12' fill='#ff5f57'/>
+  <circle cx='196' cy='144' r='12' fill='#febc2e'/>
+  <circle cx='232' cy='144' r='12' fill='#28c840'/>
+  <text x='800' y='152' fill='#c0cdeb' font-size='28' font-family='Inter, sans-serif' text-anchor='middle'>ClipMate · Paste Stack</text>
+  <rect x='138' y='196' width='1324' height='94' rx='28' fill='#0f182b' stroke='#243552'/>
+  <text x='184' y='254' fill='#dfe8ff' font-size='30' font-family='Inter, sans-serif'>Paste Stack 已开启</text>
+  <text x='572' y='254' fill='#8ca0c5' font-size='22' font-family='Inter, sans-serif'>每次复制都会追加到队列，按顺序逐项粘贴。</text>
+  <rect x='138' y='332' width='392' height='458' rx='30' fill='#14213a' stroke='#4a68b7' stroke-width='3'/>
+  <rect x='572' y='332' width='392' height='458' rx='30' fill='#101a2e' stroke='#243552'/>
+  <rect x='1006' y='332' width='392' height='458' rx='30' fill='#101a2e' stroke='#243552'/>
+  <text x='176' y='392' fill='#ffffff' font-size='28' font-family='Inter, sans-serif'>1. 会议纪要链接</text>
+  <text x='176' y='438' fill='#b8caf0' font-size='23' font-family='Inter, sans-serif'>https://github.com/zhuiyue132/ClipMate</text>
+  <text x='176' y='494' fill='#8ca0c5' font-size='20' font-family='Inter, sans-serif'>下一次 ⌘V 将优先粘贴这条</text>
+  <text x='610' y='392' fill='#dfe8ff' font-size='28' font-family='Inter, sans-serif'>2. 官网 Hero 文案</text>
+  <text x='610' y='438' fill='#b8caf0' font-size='23' font-family='Inter, sans-serif'>本地优先的 macOS 剪贴板管理器</text>
+  <text x='610' y='494' fill='#8ca0c5' font-size='20' font-family='Inter, sans-serif'>可拖动调整顺序</text>
+  <text x='1044' y='392' fill='#dfe8ff' font-size='28' font-family='Inter, sans-serif'>3. 隐私说明</text>
+  <text x='1044' y='438' fill='#b8caf0' font-size='23' font-family='Inter, sans-serif'>默认本地存储，可选同步</text>
+  <text x='1044' y='494' fill='#8ca0c5' font-size='20' font-family='Inter, sans-serif'>支持移除或清空</text>
+  <rect x='176' y='700' width='150' height='44' rx='22' fill='#5b7ef7'/>
+  <text x='251' y='728' fill='white' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>下一项</text>
+  <rect x='344' y='700' width='150' height='44' rx='22' fill='#15243f'/>
+  <text x='419' y='728' fill='#dfe8ff' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>移除</text>
+  <rect x='1006' y='196' width='456' height='94' rx='28' fill='#101a2e' stroke='#243552'/>
+  <text x='1042' y='252' fill='#dfe8ff' font-size='22' font-family='Inter, sans-serif'>快捷键提示：队列非空时，⌘V 将逐项消耗队列头部内容。</text>
+</svg>

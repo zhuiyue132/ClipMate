@@ -1,0 +1,42 @@
+---
+import { assetHref, navItems, pageHref, siteMeta } from '../config/site'
+
+interface Props {
+  currentPath?: string
+}
+
+const { currentPath = '/' } = Astro.props
+---
+
+<header class="site-header">
+  <div class="container header-inner">
+    <a href={pageHref('/')} class="brand-mark" aria-label="ClipMate 首页">
+      <img src={assetHref('icon_512x512@2x.png')} alt="ClipMate 标志" width="36" height="36" />
+      <span>{siteMeta.name}</span>
+    </a>
+
+    <nav class="top-nav" aria-label="主导航">
+      {
+        navItems.map((item) => (
+          <a
+            href={item.href}
+            class:list={['nav-link', item.currentPath === currentPath && 'is-active']}
+            target={item.external ? '_blank' : undefined}
+            rel={item.external ? 'noreferrer' : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </nav>
+
+    <div class="header-actions">
+      <a class="button button-secondary header-github" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
+        GitHub
+      </a>
+      <a class="button button-primary" href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">
+        下载 Mac 版
+      </a>
+    </div>
+  </div>
+</header>

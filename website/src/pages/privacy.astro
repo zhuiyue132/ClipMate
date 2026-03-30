@@ -1,0 +1,44 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import { privacyPoints } from '../config/site'
+---
+
+<BaseLayout title="隐私" description="了解 ClipMate 的本地优先理念、权限说明与可选同步策略。" currentPath="/privacy/">
+  <section class="section page-hero">
+    <div class="container section-copy narrow-copy">
+      <p class="eyebrow">隐私与本地优先</p>
+      <h1>你的剪贴板历史，优先留在你的设备上</h1>
+      <p>
+        ClipMate 被设计为一款本地优先的 macOS 工具。你的剪贴板历史默认保存在本机，核心能力不依赖远程服务。
+      </p>
+    </div>
+  </section>
+
+  <section class="section section-soft">
+    <div class="container page-stack">
+      <article class="surface-card info-card">
+        <h2>本地存储</h2>
+        <p>历史记录默认保存在本地 SQLite 数据库，设置保存在本地文件中。多数核心功能都可以在完全本地的方式下工作。</p>
+      </article>
+
+      <article class="surface-card info-card">
+        <h2>同步策略</h2>
+        <p>iCloud Drive 同步是可选功能，默认关闭。开启后会通过 iCloud Drive 文件进行同步，并以更新时间为准合并。</p>
+      </article>
+
+      <article class="surface-card info-card">
+        <h2>隐私控制</h2>
+        <ul class="bullet-list" role="list">
+          {privacyPoints.map((point) => <li>{point}</li>)}
+        </ul>
+      </article>
+
+      <article class="surface-card info-card">
+        <h2>系统权限说明</h2>
+        <p>
+          辅助功能权限用于自动粘贴等系统集成功能。部分屏幕相关权限仅用于特定场景能力，例如共享画面保护策略。
+        </p>
+      </article>
+    </div>
+  </section>
+</BaseLayout>

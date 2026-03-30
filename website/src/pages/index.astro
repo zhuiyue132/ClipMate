@@ -1,0 +1,161 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro'
+import {
+  faqItems,
+  features,
+  heroBadges,
+  pageHref,
+  privacyPoints,
+  screenshots,
+  siteMeta,
+  valueCards
+} from '../config/site'
+---
+
+<BaseLayout currentPath="/">
+  <section class="hero section">
+    <div class="container hero-grid">
+      <div>
+        <p class="eyebrow">ClipMate</p>
+        <h1>本地优先的 macOS 剪贴板管理器</h1>
+        <p class="hero-copy">
+          保存你复制过的文本、链接、图片、文件与颜色。支持搜索、OCR、直接粘贴与
+          Paste Stack，把剪贴板真正变成可管理的工作流。
+        </p>
+        <div class="button-row">
+          <a class="button button-primary" href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">
+            下载 Mac 版
+          </a>
+          <a class="button button-secondary" href={siteMeta.repoUrl} target="_blank" rel="noreferrer">
+            查看 GitHub
+          </a>
+        </div>
+        <ul class="badge-row" role="list">
+          {heroBadges.map((badge) => <li>{badge}</li>)}
+        </ul>
+      </div>
+
+      <div class="hero-shot">
+        <img src={screenshots[0].image} alt={screenshots[0].alt} loading="eager" />
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container section-copy section-copy-center">
+      <p class="eyebrow">为什么选择 ClipMate</p>
+      <h2>你复制过的内容，不该轻易丢失</h2>
+    </div>
+    <div class="container value-grid">
+      {
+        valueCards.map((item) => (
+          <article class="surface-card value-card">
+            <h3>{item.title}</h3>
+            <p>{item.description}</p>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <section id="features" class="section section-soft">
+    <div class="container section-copy section-copy-center">
+      <p class="eyebrow">产品特性</p>
+      <h2>围绕高频工作流设计，而不是只做“剪贴板历史”</h2>
+    </div>
+
+    <div class="container feature-stack">
+      {
+        features.map((feature) => (
+          <article class:list={['feature-panel', feature.reverse && 'is-reversed']}>
+            <div class="surface-card feature-shot">
+              <img src={feature.image} alt={feature.alt} loading="lazy" />
+            </div>
+            <div class="feature-copy">
+              <h3>{feature.title}</h3>
+              <p>{feature.description}</p>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container section-copy section-copy-center">
+      <p class="eyebrow">产品截图</p>
+      <h2>看一眼，就知道它怎么工作</h2>
+    </div>
+    <div class="container screenshot-grid">
+      {
+        screenshots.map((item) => (
+          <article class="surface-card screenshot-card">
+            <img src={item.image} alt={item.alt} loading="lazy" />
+            <div class="screenshot-copy">
+              <h3>{item.title}</h3>
+              <p>{item.description}</p>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="section section-soft">
+    <div class="container split-panel">
+      <div class="section-copy">
+        <p class="eyebrow">隐私与本地优先</p>
+        <h2>你的剪贴板历史，优先留在你的设备上</h2>
+        <p>
+          ClipMate 默认以本地方式工作，不依赖外部服务。你可以在保留高效工作流的同时，继续掌控数据如何被保存与同步。
+        </p>
+        <p class="emphasis">ClipMate 的目标不是接管你的数据，而是把控制权交还给你。</p>
+      </div>
+
+      <div class="surface-card bullet-card">
+        <ul role="list" class="bullet-list">
+          {privacyPoints.map((point) => <li>{point}</li>)}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta-section">
+    <div class="container cta-card">
+      <div>
+        <p class="eyebrow">下载</p>
+        <h2>准备开始了吗？</h2>
+        <p>下载 ClipMate，在 macOS 上获得更可靠、更顺手的剪贴板工作流。</p>
+        <p class="cta-meta">仅支持 macOS · 下载来源：GitHub Releases</p>
+      </div>
+      <div class="button-row">
+        <a class="button button-primary" href={siteMeta.latestReleaseUrl} target="_blank" rel="noreferrer">
+          下载 Mac 版
+        </a>
+        <a class="button button-secondary" href={siteMeta.releasesUrl} target="_blank" rel="noreferrer">
+          查看发行版本
+        </a>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container section-copy section-copy-center">
+      <p class="eyebrow">常见问题</p>
+      <h2>先回答最常见的四个问题</h2>
+    </div>
+    <div class="container faq-list compact-faq">
+      {
+        faqItems.slice(0, 4).map((item) => (
+          <article class="surface-card faq-card">
+            <h3>{item.question}</h3>
+            <p>{item.answer}</p>
+          </article>
+        ))
+      }
+    </div>
+    <div class="container centered-action">
+      <a class="button button-secondary" href={pageHref('/faq/')}>查看全部 FAQ</a>
+    </div>
+  </section>
+</BaseLayout>

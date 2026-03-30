@@ -1,0 +1,37 @@
+<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1600 980' fill='none'>
+  <defs>
+    <linearGradient id='bg2' x1='120' x2='1480' y1='100' y2='900' gradientUnits='userSpaceOnUse'>
+      <stop stop-color='#111d35'/>
+      <stop offset='1' stop-color='#08111e'/>
+    </linearGradient>
+  </defs>
+  <rect width='1600' height='980' rx='56' fill='#050914'/>
+  <rect x='92' y='76' width='1416' height='828' rx='40' fill='url(#bg2)' stroke='#25314c' stroke-width='2'/>
+  <circle cx='152' cy='134' r='12' fill='#ff5f57'/>
+  <circle cx='188' cy='134' r='12' fill='#febc2e'/>
+  <circle cx='224' cy='134' r='12' fill='#28c840'/>
+  <text x='800' y='143' fill='#b8c5e3' font-size='28' font-family='Inter, sans-serif' text-anchor='middle'>ClipMate · 搜索与筛选</text>
+  <rect x='132' y='184' width='1320' height='86' rx='28' fill='#0a1325' stroke='#22304b'/>
+  <rect x='162' y='208' width='146' height='38' rx='19' fill='#5b7ef7'/>
+  <text x='235' y='233' fill='white' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>文本</text>
+  <rect x='332' y='208' width='646' height='38' rx='19' fill='#111b2f' stroke='#35528f'/>
+  <text x='372' y='233' fill='#d8e4ff' font-size='21' font-family='Inter, sans-serif'>搜索：landing page</text>
+  <rect x='1006' y='208' width='186' height='38' rx='19' fill='#15243f'/>
+  <text x='1099' y='233' fill='#d8e4ff' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>来源：Figma</text>
+  <rect x='1216' y='208' width='206' height='38' rx='19' fill='#15243f'/>
+  <text x='1319' y='233' fill='#d8e4ff' font-size='21' font-family='Inter, sans-serif' text-anchor='middle'>今天</text>
+  <rect x='132' y='308' width='1320' height='86' rx='28' fill='#101a2f' stroke='#2b3c5e'/>
+  <text x='172' y='360' fill='#dfe9ff' font-size='24' font-family='Inter, sans-serif'>显示 12 条结果 · 文本 · Figma · 今天</text>
+  <rect x='132' y='430' width='1320' height='118' rx='28' fill='#14213b' stroke='#4b69b9' stroke-width='3'/>
+  <text x='172' y='484' fill='#ffffff' font-size='30' font-family='Inter, sans-serif'>Landing Page 文案</text>
+  <text x='172' y='526' fill='#b8caf0' font-size='24' font-family='Inter, sans-serif'>Hero：<tspan fill='#8db2ff'>本地优先</tspan>的 macOS 剪贴板管理器</text>
+  <text x='172' y='576' fill='#7f93b9' font-size='22' font-family='Inter, sans-serif'>来自 Figma · 3 分钟前</text>
+  <rect x='132' y='576' width='1320' height='118' rx='28' fill='#111a2d' stroke='#243553'/>
+  <text x='172' y='630' fill='#e4edff' font-size='30' font-family='Inter, sans-serif'>官网功能亮点</text>
+  <text x='172' y='672' fill='#b8caf0' font-size='24' font-family='Inter, sans-serif'>支持搜索、OCR、直接粘贴与 <tspan fill='#8db2ff'>Paste Stack</tspan></text>
+  <text x='172' y='722' fill='#7f93b9' font-size='22' font-family='Inter, sans-serif'>来自 Figma · 12 分钟前</text>
+  <rect x='132' y='722' width='1320' height='118' rx='28' fill='#111a2d' stroke='#243553'/>
+  <text x='172' y='776' fill='#e4edff' font-size='30' font-family='Inter, sans-serif'>OCR 结果</text>
+  <text x='172' y='818' fill='#b8caf0' font-size='24' font-family='Inter, sans-serif'>landing page / pricing / privacy / download</text>
+  <text x='172' y='868' fill='#7f93b9' font-size='22' font-family='Inter, sans-serif'>图片 OCR · Sketch · 40 分钟前</text>
+</svg>
